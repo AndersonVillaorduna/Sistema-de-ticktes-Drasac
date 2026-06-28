@@ -1,0 +1,275 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ============================
+   DESIGN SYSTEM - DRASAC
+   Paleta clara y profesional — ver design_system_drasac.md
+   (reemplaza el tema oscuro "glow" que tenías)
+   ============================ */
+
+:root {
+  /* Fondos */
+  --bg-primary: #F6F8FB;
+  /* fondo general de la página */
+  --bg-secondary: #FFFFFF;
+  /* fondo de tarjetas / paneles */
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F6F8FB;
+  --border-subtle: #E3E7ED;
+  --border-active: #2B5C8A;
+
+  /* Texto */
+  --text-primary: #1B2330;
+  --text-secondary: #667085;
+  --text-muted: #C4CBD6;
+
+  /* Marca DRASAC (azul muestreado del logo real) */
+  --accent-blue: #2B5C8A;
+  --accent-blue-dark: #1B3C5C;
+  --accent-blue-light: #EAF1F8;
+
+  /* Acento de IA — exclusivo para sugerencias del modelo, en ningún otro lugar */
+  --accent-ai: #6D5BD0;
+  --accent-ai-light: #F1EEFB;
+
+  /* Estados */
+  --accent-emerald: #2E8B57;
+  --accent-emerald-light: #E7F5ED;
+  --accent-amber: #C97A1F;
+  --accent-amber-light: #FBF0E1;
+  --accent-red: #C9483D;
+  --accent-red-light: #FBEAE8;
+
+  /* Geometría */
+  --radius-card: 10px;
+  --radius-btn: 8px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+}
+
+/* ============================
+   BASE STYLES
+   ============================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ============================
+   SCROLLBAR CUSTOM
+   ============================ */
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(43, 92, 138, 0.25);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(43, 92, 138, 0.4);
+}
+
+/* ============================
+   ANIMATIONS (sutiles, sin "glow" ni elementos flotantes)
+   ============================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+.animate-slide-left {
+  animation: slideInLeft 0.35s ease forwards;
+}
+
+.animate-slide-right {
+  animation: slideInRight 0.35s ease forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.3s ease forwards;
+}
+
+/* ============================
+   CARD / SURFACE STYLES
+   (antes: .glass-card con blur oscuro → ahora tarjeta clara estándar)
+   ============================ */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.card-hover:hover {
+  border-color: var(--accent-blue);
+  cursor: pointer;
+}
+
+/* Gradient text — se mantiene, pero con el azul de marca */
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Shimmer skeleton (loading state — sigue siendo válido, es profesional) */
+.skeleton {
+  background: linear-gradient(90deg,
+      var(--border-subtle) 25%,
+      #f0f2f5 50%,
+      var(--border-subtle) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Botón primario — antes: .btn-glow con resplandor de neón.
+   Ahora: botón plano, sólido, sin sombra de color. */
+.btn-primary {
+  background: var(--accent-blue);
+  color: #fff;
+  transition: background 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--accent-blue-dark);
+}
+
+/* Input focus — borde de marca, sin glow de color */
+.input-focus:focus {
+  outline: none;
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px var(--accent-blue-light);
+}
+
+/* ============================
+   STATUS BADGES (mismo mapeo que en los mockups)
+   ============================ */
+.badge-open {
+  background: var(--accent-red-light);
+  color: var(--accent-red);
+}
+
+.badge-progress {
+  background: var(--accent-amber-light);
+  color: var(--accent-amber);
+}
+
+.badge-resolved {
+  background: var(--accent-emerald-light);
+  color: var(--accent-emerald);
+}
+
+.badge-closed {
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.badge-ai {
+  background: var(--accent-ai-light);
+  color: var(--accent-ai);
+}
+
+.badge-low {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.badge-medium {
+  background: var(--accent-amber-light);
+  color: var(--accent-amber);
+}
+
+.badge-high {
+  background: var(--accent-red-light);
+  color: var(--accent-red);
+}

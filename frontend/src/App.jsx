@@ -1,0 +1,72 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Layout from './components/Layout';
+
+// Páginas
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import TicketsList from './pages/TicketsList';
+import CreateTicket from './pages/CreateTicket';
+import TicketDetail from './pages/TicketDetail';
+import Inventory from './pages/Inventory';
+
+// ─── Loading Spinner ──────────────────────────────────────────────────────────
+const LoadingScreen = () => (
+  <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30 animate-pulse">
+        <span className="text-white font-black text-lg">D</span>
+      </div>
+      <div className="flex gap-1">
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+      </div>
+    </div>
+  </div>
+);
+
+// ─── Ruta privada (cualquier usuario autenticado) ─────────────────────────────
+const PrivateRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <Layout>{children}</Layout>;
+};
+
+// ─── Ruta exclusiva para Admin y Técnico ─────────────────────────────────────
+const AdminRoute = ({ children }) => {
+  const { user, loading, isTecnico } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isTecnico) return <Navigate to="/" replace />;
+  return <Layout>{children}</Layout>;
+};
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <Routes>
+          {/* Ruta Pública */}
+          <Route path="/login" element={<Login />} />
+
+          {/* Rutas comunes (todos los autenticados) */}
+          <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/tickets" element={<PrivateRoute><TicketsList /></PrivateRoute>} />
+          <Route path="/tickets/nuevo" element={<PrivateRoute><CreateTicket /></PrivateRoute>} />
+          <Route path="/tickets/:id" element={<PrivateRoute><TicketDetail /></PrivateRoute>} />
+
+          {/* Rutas exclusivas Admin/Técnico */}
+          <Route path="/inventario" element={<AdminRoute><Inventory /></AdminRoute>} />
+
+          {/* Redirección por defecto */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
+  );
+}
+
+export default App;
