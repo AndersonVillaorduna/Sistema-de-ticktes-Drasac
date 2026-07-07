@@ -10,9 +10,14 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem('drasac_token');
+      const storedUser = localStorage.getItem('drasac_user');
+      if (token === 'demo-token-123' && storedUser) {
+        setUser(JSON.parse(storedUser));
+        setLoading(false);
+        return;
+      }
       if (token) {
         try {
-          // Verificar token con backend
           const response = await api.get('/auth/me');
           setUser(response.data);
           localStorage.setItem('drasac_user', JSON.stringify(response.data));
@@ -31,7 +36,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('/auth/login', { email, password });
       const { token, usuario } = response.data;
-      
+
       localStorage.setItem('drasac_token', token);
       localStorage.setItem('drasac_user', JSON.stringify(usuario));
       setUser(usuario);
@@ -55,6 +60,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     isAdmin: user?.rol === 'admin',
     isTecnico: user?.rol === 'tecnico' || user?.rol === 'admin',
+    isUser: user?.rol === 'usuario',
+    hasRole: (roles) => roles.includes(user?.rol),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
