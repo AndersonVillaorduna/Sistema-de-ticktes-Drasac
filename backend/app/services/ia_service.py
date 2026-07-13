@@ -66,7 +66,7 @@ Tu respuesta debe lucir exactamente así:
         response = requests.post(
             f"{OLLAMA_API_URL}/api/generate",
             json=payload,
-            timeout=10  # Timeout corto para no bloquear la aplicación
+            timeout=120
         )
         
         if response.status_code == 200:

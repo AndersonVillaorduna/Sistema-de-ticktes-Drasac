@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { Sparkles, Send, Loader2, Bot, Info } from 'lucide-react';
+import { Sparkles, Send, Loader2, Bot, Info, MessageCircle } from 'lucide-react';
 
 const TypingIndicator = () => (
-  <div className="flex gap-1 items-center px-1">
+  <div className="flex gap-1.5 items-center px-2 py-1">
     {[0, 1, 2].map((i) => (
-      <span key={i} className="w-1.5 h-1.5 rounded-full bg-ai animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+      <span key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 180}ms` }} />
     ))}
   </div>
 );
@@ -14,7 +14,10 @@ const TypingIndicator = () => (
 export default function AIHelp() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '¡Hola! Soy el asistente de soporte de DRASAC. Describe tu problema y haré todo lo posible por ayudarte a resolverlo antes de que abramos un ticket formal.' },
+    {
+      role: 'assistant',
+      content: '¡Hola! Soy el asistente de soporte de DRASAC. Describe tu problema y haré todo lo posible por ayudarte a resolverlo antes de que abramos un ticket formal.',
+    },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,7 +33,7 @@ export default function AIHelp() {
     setLoading(true);
     try {
       const res = await api.post('/tickets/ia-preview', {
-        titulo: 'Consulta ráfaga desde asistente',
+        titulo: 'Consulta rápida desde asistente',
         descripcion: userMsg.content,
       });
       const response = res.data?.sugerencia || res.data?.respuesta_ia || 'Lo siento, no pude procesar tu consulta. ¿Podrías intentar describirlo de otra forma?';
@@ -53,43 +56,58 @@ export default function AIHelp() {
     .join('\n');
 
   return (
-    <div className="w-full" style={{ maxWidth: '680px', margin: '0 auto' }}>
-      <div className="mb-6">
-        <p className="text-[11px] font-bold text-ai uppercase tracking-wider flex items-center gap-1.5">
+    <div className="w-full" style={{ maxWidth: '720px', margin: '0 auto' }}>
+      <div className="mb-8 px-1">
+        <p className="text-[11px] font-bold text-purple-600 uppercase tracking-[0.15em] flex items-center gap-1.5 mb-2">
           <Sparkles className="w-3.5 h-3.5" /> ASISTENTE DE IA
         </p>
-        <h2 className="text-lg font-bold text-neutral-900 mt-1">¿Cuál es tu problema?</h2>
-        <p className="text-sm text-neutral-500">Describe lo que te está pasando y el asistente intentará ayudarte a resolverlo antes de abrir un ticket.</p>
-        <div className="mt-3 flex items-start gap-2.5 px-4 py-3 rounded-lg bg-ai-light border-l-[3px] border-ai text-sm text-neutral-700">
-          <Info className="w-4 h-4 text-ai shrink-0 mt-0.5" />
-          <span>Este asistente funciona localmente en los servidores de DRASAC. Tu consulta no sale a Internet.</span>
+        <h2 className="text-2xl font-bold text-neutral-900 mt-1">¿Cuál es tu problema?</h2>
+        <p className="text-[15px] text-neutral-500 mt-2 leading-relaxed">
+          Describe lo que te está pasando y el asistente intentará ayudarte a resolverlo antes de abrir un ticket.
+        </p>
+        <div className="mt-4 flex items-start gap-3 px-5 py-4 rounded-2xl bg-purple-50 border border-purple-100 text-sm text-neutral-700">
+          <Info className="w-4 h-4 text-purple-500 shrink-0 mt-0.5" />
+          <span className="leading-relaxed">Este asistente funciona localmente en los servidores de DRASAC. Tu consulta no sale a Internet.</span>
         </div>
       </div>
 
-      <div className="overflow-hidden shadow-lg" style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '24px' }}>
-        <div className="h-[500px] overflow-y-auto p-4 md:p-5 space-y-4" style={{ scrollBehavior: 'smooth' }}>
+      <div className="overflow-hidden shadow-xl border border-neutral-200/60" style={{ background: '#fff', borderRadius: '28px' }}>
+        <div className="h-[520px] overflow-y-auto px-6 py-6 space-y-5" style={{ scrollBehavior: 'smooth' }}>
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] px-4 py-3`}
-                style={{
-                  background: msg.role === 'user' ? '#1B3C5C' : '#F5F3FF',
-                  color: msg.role === 'user' ? '#fff' : '#171717',
-                  border: msg.role === 'user' ? 'none' : '1px solid #EAE5FF',
-                  borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px'
-                }}>
+              {msg.role === 'assistant' && (
+                <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0 mr-3 mt-1">
+                  <Bot className="w-4.5 h-4.5 text-purple-600" />
+                </div>
+              )}
+              <div
+                className={`max-w-[75%] px-5 py-4 leading-relaxed text-sm whitespace-pre-wrap ${
+                  msg.role === 'user'
+                    ? 'bg-[#1B3C5C] text-white rounded-2xl rounded-br-md'
+                    : 'bg-purple-50 text-neutral-800 border border-purple-100 rounded-2xl rounded-bl-md'
+                }`}
+              >
                 {msg.role === 'assistant' && (
-                  <p className="text-[11px] font-bold text-ai flex items-center gap-1 mb-1">
+                  <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1 mb-2">
                     <Sparkles className="w-3 h-3" /> Asistente DRASAC
                   </p>
                 )}
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                <p className="leading-relaxed">{msg.content}</p>
               </div>
+              {msg.role === 'user' && (
+                <div className="w-9 h-9 rounded-full bg-[#1B3C5C] flex items-center justify-center shrink-0 ml-3 mt-1">
+                  <span className="text-white text-xs font-bold">TÚ</span>
+                </div>
+              )}
             </div>
           ))}
           {loading && (
             <div className="flex justify-start">
-              <div className="px-4 py-3" style={{ background: '#F5F3FF', border: '1px solid #EAE5FF', borderRadius: '16px 16px 16px 4px' }}>
-                <p className="text-[11px] font-bold text-ai flex items-center gap-1 mb-1">
+              <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0 mr-3">
+                <Bot className="w-4.5 h-4.5 text-purple-600" />
+              </div>
+              <div className="px-5 py-4 bg-purple-50 border border-purple-100 rounded-2xl rounded-bl-md">
+                <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1 mb-1.5">
                   <Sparkles className="w-3 h-3" /> Asistente DRASAC
                 </p>
                 <TypingIndicator />
@@ -99,15 +117,16 @@ export default function AIHelp() {
           <div ref={chatEndRef} />
         </div>
 
-        <div className="p-4 border-t border-neutral-100">
-          <div className="flex gap-3">
+        <div className="px-6 py-5 border-t border-neutral-100 bg-neutral-50/50">
+          <div className="flex gap-3 items-end">
             <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-              placeholder="Describe tu problema aquí..." rows={1}
-              className="flex-1 py-3 px-4 text-[15px] border border-neutral-200 focus:border-[#8B5CF6] focus:outline-none resize-none transition-all"
-              style={{ borderRadius: '16px', background: '#FAFAFA' }} />
+              placeholder="Describe tu problema aquí..."
+              rows={1}
+              className="flex-1 py-3.5 px-5 text-[15px] border border-neutral-200 focus:border-purple-400 focus:ring-4 focus:ring-purple-100 outline-none resize-none transition-all bg-white rounded-2xl"
+              style={{ minHeight: '48px', maxHeight: '120px' }} />
             <button onClick={handleSend} disabled={loading || !input.trim()}
-              className="w-[52px] h-[52px] flex items-center justify-center hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              style={{ background: '#8B5CF6', color: '#fff', borderRadius: '16px' }}>
+              className="w-[48px] h-[48px] flex items-center justify-center rounded-2xl transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 shadow-sm hover:shadow-md"
+              style={{ background: '#8B5CF6', color: '#fff' }}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
@@ -115,11 +134,15 @@ export default function AIHelp() {
       </div>
 
       {messages.filter((m) => m.role === 'user').length >= 2 && (
-        <div className="mt-5 p-5 text-center animate-fade-in" style={{ background: '#fff', borderRadius: '24px', border: '1px solid #f0f0f0' }}>
-          <p className="text-sm text-neutral-600 mb-3">¿No se resolvió tu problema?</p>
+        <div className="mt-8 p-6 text-center animate-fade-in bg-white rounded-3xl border border-neutral-200 shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center mx-auto mb-4">
+            <MessageCircle className="w-6 h-6 text-neutral-400" />
+          </div>
+          <p className="text-sm font-semibold text-neutral-700 mb-1">¿No se resolvió tu problema?</p>
+          <p className="text-xs text-neutral-400 mb-4">Crea un ticket formal y un técnico te atenderá pronto.</p>
           <button onClick={() => navigate(`/portal/nuevo-ticket?contexto=${encodeURIComponent(contextoTicket)}`)}
-            className="py-3 px-6 text-sm font-bold shadow-md hover:-translate-y-0.5 transition-all"
-            style={{ background: '#1B3C5C', color: '#fff', borderRadius: '9999px' }}>
+            className="py-3.5 px-8 text-sm font-bold shadow-md hover:-translate-y-0.5 transition-all rounded-full"
+            style={{ background: '#1B3C5C', color: '#fff' }}>
             Crear un ticket con este contexto →
           </button>
         </div>

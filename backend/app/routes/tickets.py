@@ -13,6 +13,61 @@ from datetime import datetime
 
 tickets_bp = Blueprint('tickets', __name__)
 
+@tickets_bp.route('/ia-preview', methods=['POST'])
+@jwt_required()
+def ia_preview():
+    data = request.get_json()
+    titulo = data.get('titulo', '')
+    descripcion = data.get('descripcion', '')
+    texto_completo = (titulo + ' ' + descripcion).lower()
+
+    if not titulo and not descripcion:
+        return jsonify({"error": "Datos incompletos", "message": "Se requiere al menos título o descripción"}), 400
+
+    ia_res = None
+    usando_ia = False
+    try:
+        ia_res = clasificar_y_resolver_ticket(titulo, descripcion)
+        if ia_res:
+            usando_ia = True
+    except Exception:
+        pass
+
+    if not ia_res:
+        ia_res = clasificador_heuristico(titulo, descripcion)
+
+    cat_nombre = ia_res.get('categoria', 'Software')
+    confianza = ia_res.get('confianza', 0.5)
+    respuesta = ia_res.get('respuesta_sugerida')
+
+    if not respuesta:
+        try:
+            from app.models.categoria import Categoria as CatModel
+            from app.models.base_conocimiento import BaseConocimiento
+            cat_obj = CatModel.query.filter_by(nombre=cat_nombre).first()
+            if cat_obj:
+                casos = BaseConocimiento.query.filter_by(categoria_id=cat_obj.id).all()
+                mejor = None
+                max_coins = 0
+                for caso in casos:
+                    palabras = [p.strip().lower() for p in caso.palabras_clave.split(',') if p.strip()]
+                    coins = sum(1 for p in palabras if p in texto_completo)
+                    if coins > max_coins:
+                        max_coins = coins
+                        mejor = caso
+                if mejor:
+                    respuesta = mejor.solucion
+        except Exception:
+            pass
+
+    if not respuesta:
+        if usando_ia:
+            respuesta = f"La IA detectó que el problema pertenece a la categoría **{cat_nombre}** con un {int(confianza*100)}% de confianza. Se creará un ticket para que un técnico especializado te atienda."
+        else:
+            respuesta = f"Detectamos que tu problema está relacionado con **{cat_nombre}**. Se creará un ticket para que un técnico revise tu caso lo antes posible."
+
+    return jsonify({"sugerencia": respuesta, "respuesta_ia": respuesta}), 200
+
 @tickets_bp.route('', methods=['POST'])
 @jwt_required()
 def crear_ticket():
@@ -25,6 +80,8 @@ def crear_ticket():
     titulo = data.get('titulo')
     descripcion = data.get('descripcion')
     equipos_ids = data.get('equipos_ids', [])
+    user_categoria_id = data.get('categoria_id')
+    user_prioridad = data.get('prioridad')
 
     if not titulo or not descripcion:
         return jsonify({"error": "Validación fallida", "message": "El título y la descripción son obligatorios"}), 400
@@ -39,14 +96,19 @@ def crear_ticket():
         usando_ia = False
 
     cat_nombre = ia_res.get('categoria')
-    prioridad = ia_res.get('prioridad', 'media')
     confianza = ia_res.get('confianza', 0.5)
     es_caso_conocido = ia_res.get('es_caso_conocido', False)
     respuesta_sugerida = ia_res.get('respuesta_sugerida')
 
-    # 2. Buscar categoría en base de datos
-    categoria = Categoria.query.filter_by(nombre=cat_nombre).first()
-    categoria_id = categoria.id if categoria else None
+    # 2. Usar categoría del usuario si la proporcionó, si no usar la de la IA
+    if user_categoria_id:
+        categoria_id = int(user_categoria_id)
+    else:
+        categoria_obj = Categoria.query.filter_by(nombre=cat_nombre).first()
+        categoria_id = categoria_obj.id if categoria_obj else None
+
+    # Usar prioridad del usuario si la proporcionó, si no usar la de la IA
+    prioridad = user_prioridad if user_prioridad in ['baja', 'media', 'alta'] else ia_res.get('prioridad', 'media')
 
     # 3. Si la IA detecta que es caso conocido y tiene buena confianza pero no devolvió solución,
     # buscamos en la base_conocimiento local por palabras clave

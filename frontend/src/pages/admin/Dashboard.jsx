@@ -155,79 +155,87 @@ export default function AdminDashboard() {
                 </div>
               ) : (
                 <>
-                  <div className="card p-5">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-lg bg-primary-light flex items-center justify-center shrink-0">
-                        <Ticket className="w-5 h-5 text-primary" />
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+                    <div className="flex items-center gap-3 mb-5 pb-4 border-b border-neutral-100">
+                      <div className="w-11 h-11 rounded-xl bg-[#1B3C5C]/10 flex items-center justify-center shrink-0">
+                        <Ticket className="w-5 h-5 text-[#1B3C5C]" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-neutral-900 truncate">{ticketDetail.titulo}</p>
-                        <p className="text-xs text-neutral-500">#{ticketDetail.id} · {ticketDetail.categoria_nombre || 'Sin categoría'}</p>
+                        <p className="text-xs text-neutral-500 mt-0.5">#{ticketDetail.id} · {ticketDetail.categoria_nombre || 'Sin categoría'}</p>
                       </div>
                       <StatusBadge estado={ticketDetail.estado} />
                     </div>
-                    <p className="text-xs text-neutral-600 leading-relaxed bg-neutral-50 rounded-lg p-3 border border-neutral-100">
+                    <p className="text-xs text-neutral-600 leading-relaxed bg-neutral-50 rounded-xl p-4 border border-neutral-100">
                       {ticketDetail.descripcion}
                     </p>
-                    <a href={`/admin/tickets/${ticketDetail.id}`} className="mt-4 block text-center w-full py-2.5 rounded-lg bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-all">
+                    <a href={`/admin/tickets/${ticketDetail.id}`}
+                      className="mt-5 block text-center w-full py-3 rounded-xl bg-[#1B3C5C]/5 border border-[#1B3C5C]/15 text-[#1B3C5C] text-xs font-bold hover:bg-[#1B3C5C]/10 transition-all">
                       Ver detalle completo →
                     </a>
                   </div>
 
-                  {/* Tarjeta de IA: solo si hay una sugerencia real */}
                   {ticketDetail.respuesta_ia && (
-                    <div className="ai-card">
-                      <div className="ai-head">
-                        <div className="w-10 h-10 rounded-lg bg-ai-light border border-ai/20 flex items-center justify-center">
-                          <Cpu className="w-5 h-5 text-ai" />
+                    <div className="rounded-2xl border border-purple-200 p-6 shadow-sm" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #fff 100%)' }}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center">
+                          <Cpu className="w-5 h-5 text-purple-600" />
                         </div>
                         <div>
-                          <p className="ai-eyebrow"><Sparkles className="w-3 h-3" /> Asistente IA</p>
-                          <p className="text-xs text-neutral-500">Sugerencia automática</p>
+                          <p className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-purple-500" /> Asistente IA
+                          </p>
+                          <p className="text-[11px] text-purple-400 mt-0.5">Sugerencia automática</p>
                         </div>
                       </div>
-                      <div className="ai-suggestion-line">"{ticketDetail.respuesta_ia}"</div>
+                      <div className="p-4 rounded-xl border border-purple-100 text-sm text-neutral-700 leading-relaxed italic bg-white/80">
+                        &ldquo;{ticketDetail.respuesta_ia}&rdquo;
+                      </div>
                       {ticketDetail.confianza_ia != null && (
-                        <>
-                          <div className="confidence-row">
-                            <span>Confianza</span>
-                            <span>{ticketDetail.confianza_ia}%</span>
+                        <div className="mt-4">
+                          <div className="flex justify-between text-[11px] mb-1.5">
+                            <span className="text-neutral-500 font-medium">Confianza</span>
+                            <span className="font-bold text-purple-600">{ticketDetail.confianza_ia}%</span>
                           </div>
-                          <div className="confidence-track">
-                            <div className="confidence-fill" style={{ width: `${ticketDetail.confianza_ia}%` }} />
+                          <div className="w-full h-2 rounded-full bg-purple-100 overflow-hidden">
+                            <div className="h-full rounded-full bg-purple-500 transition-all" style={{ width: `${ticketDetail.confianza_ia}%` }} />
                           </div>
-                        </>
+                        </div>
                       )}
                       {ticketDetail.articulo_kb && (
-                        <div className="ai-kb">
-                          <BookOpen className="w-4 h-4 text-ai shrink-0" />
-                          <span className="text-neutral-600">Artículo: <strong className="text-ai font-semibold">{ticketDetail.articulo_kb}</strong></span>
+                        <div className="mt-4 flex items-center gap-2 text-xs text-neutral-600 bg-purple-50 rounded-lg px-3 py-2 border border-purple-100">
+                          <BookOpen className="w-4 h-4 text-purple-500 shrink-0" />
+                          <span>Artículo: <strong className="text-purple-600 font-semibold">{ticketDetail.articulo_kb}</strong></span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  <div className="card p-5">
-                    <h4 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                      <MessageSquare className="w-4 h-4" /> Comentarios ({(ticketDetail.comentarios || []).length})
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+                    <h4 className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.15em] flex items-center gap-2 mb-5">
+                      <MessageSquare className="w-4 h-4" /> Comentarios
+                      <span className="ml-auto text-neutral-300 normal-case tracking-normal">({(ticketDetail.comentarios || []).length})</span>
                     </h4>
                     {(ticketDetail.comentarios || []).length === 0 ? (
-                      <p className="text-xs text-neutral-400 text-center py-4">Sin comentarios todavía.</p>
+                      <div className="py-8 text-center text-neutral-400">
+                        <MessageSquare className="w-8 h-8 text-neutral-200 mx-auto mb-2" />
+                        <p className="text-xs">Sin comentarios todavía.</p>
+                      </div>
                     ) : (
-                      <div className="space-y-0 max-h-64 overflow-y-auto">
+                      <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
                         {ticketDetail.comentarios.map((com, idx) => {
                           const isIA = com.usuario_nombre?.includes('Inteligencia Artificial');
                           return (
-                            <div key={com.id || idx} className="tl-item">
-                              <div className="tl-dot" style={{ background: isIA ? '#6D5BD0' : '#2B5C8A' }}>
-                                {isIA ? <Bot className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                            <div key={com.id || idx} className={`flex gap-2.5 ${isIA ? 'flex-row-reverse' : ''}`}>
+                              <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${isIA ? 'bg-purple-500' : 'bg-[#1B3C5C]'}`}>
+                                {isIA ? <Bot className="w-3.5 h-3.5" /> : com.usuario_nombre?.charAt(0)?.toUpperCase()}
                               </div>
-                              <div className="tl-content">
-                                <div className="tl-header">
-                                  <strong>{com.usuario_nombre}</strong>
-                                  <span>{new Date(com.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
+                              <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${isIA ? 'bg-purple-50 border border-purple-100 rounded-tr-sm' : 'bg-neutral-50 border border-neutral-100 rounded-tl-sm'}`}>
+                                <div className="flex justify-between items-center gap-2 mb-1">
+                                  <strong className="text-[11px] text-neutral-700">{com.usuario_nombre}</strong>
+                                  <span className="text-[10px] text-neutral-400 whitespace-nowrap">{new Date(com.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
-                                <p>{com.mensaje}</p>
+                                <p className="text-neutral-700 leading-relaxed text-xs">{com.mensaje}</p>
                               </div>
                             </div>
                           );
@@ -237,11 +245,15 @@ export default function AdminDashboard() {
                   </div>
 
                   {ticketDetail.estado !== 'cerrado' && (
-                    <form onSubmit={handleComment} className="reply-box">
-                      <input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder="Escribe una respuesta..." />
-                      <button type="submit" className="send-btn" disabled={sendingComment || !comentario.trim()}>
-                        <Send className="w-4 h-4" />
-                      </button>
+                    <form onSubmit={handleComment} className="bg-white rounded-2xl border border-neutral-200 p-4 shadow-sm">
+                      <div className="flex gap-3">
+                        <input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)}
+                          placeholder="Escribe una respuesta..."
+                          className="flex-1 rounded-xl py-3 px-4 text-sm border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all" />
+                        <button type="submit" className="send-btn w-11 h-11 rounded-xl bg-[#1B3C5C] text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:bg-[#142E47] transition-all" disabled={sendingComment || !comentario.trim()}>
+                          <Send className="w-4 h-4" />
+                        </button>
+                      </div>
                     </form>
                   )}
                 </>
