@@ -76,16 +76,23 @@ export default function AIHelp() {
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
-                <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0 mr-3 mt-1">
-                  <Bot className="w-4.5 h-4.5 text-purple-600" />
+                <div className="rounded-full bg-purple-100 flex items-center justify-center shrink-0"
+                     style={{ width: '36px', height: '36px', marginRight: '12px', marginTop: '4px' }}>
+                  <Bot className="w-5 h-5 text-purple-600" />
                 </div>
               )}
               <div
-                className={`max-w-[75%] px-5 py-4 leading-relaxed text-sm whitespace-pre-wrap ${
+                className={`max-w-[75%] leading-relaxed text-sm whitespace-pre-wrap break-words ${
                   msg.role === 'user'
-                    ? 'bg-[#1B3C5C] text-white rounded-2xl rounded-br-md'
-                    : 'bg-purple-50 text-neutral-800 border border-purple-100 rounded-2xl rounded-bl-md'
+                    ? 'bg-[#1B3C5C] text-white'
+                    : 'bg-purple-50 text-neutral-800 border border-purple-100'
                 }`}
+                style={{ 
+                  padding: '16px 20px', 
+                  borderRadius: '16px',
+                  borderBottomRightRadius: msg.role === 'user' ? '4px' : '16px',
+                  borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '16px'
+                }}
               >
                 {msg.role === 'assistant' && (
                   <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1 mb-2">
@@ -95,7 +102,8 @@ export default function AIHelp() {
                 <p className="leading-relaxed">{msg.content}</p>
               </div>
               {msg.role === 'user' && (
-                <div className="w-9 h-9 rounded-full bg-[#1B3C5C] flex items-center justify-center shrink-0 ml-3 mt-1">
+                <div className="rounded-full bg-[#1B3C5C] flex items-center justify-center shrink-0"
+                     style={{ width: '36px', height: '36px', marginLeft: '12px', marginTop: '4px' }}>
                   <span className="text-white text-xs font-bold">TÚ</span>
                 </div>
               )}
@@ -103,10 +111,12 @@ export default function AIHelp() {
           ))}
           {loading && (
             <div className="flex justify-start">
-              <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0 mr-3">
-                <Bot className="w-4.5 h-4.5 text-purple-600" />
+              <div className="rounded-full bg-purple-100 flex items-center justify-center shrink-0"
+                   style={{ width: '36px', height: '36px', marginRight: '12px', marginTop: '4px' }}>
+                <Bot className="w-5 h-5 text-purple-600" />
               </div>
-              <div className="px-5 py-4 bg-purple-50 border border-purple-100 rounded-2xl rounded-bl-md">
+              <div className="bg-purple-50 border border-purple-100"
+                   style={{ padding: '16px 20px', borderRadius: '16px', borderBottomLeftRadius: '4px' }}>
                 <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1 mb-1.5">
                   <Sparkles className="w-3 h-3" /> Asistente DRASAC
                 </p>

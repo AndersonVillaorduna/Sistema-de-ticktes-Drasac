@@ -82,7 +82,7 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 lg:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 lg:gap-8" style={{ marginTop: '32px' }}>
         {/* Ticket List */}
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-4 md:px-5 py-4 border-b border-neutral-100">

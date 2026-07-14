@@ -64,12 +64,14 @@ def create_app():
     from app.routes.inventario import inventario_bp
     from app.routes.dashboard import dashboard_bp
     from app.routes.categorias import categorias_bp
+    from app.routes.base_conocimiento import base_conocimiento_bp
     
     flask_app.register_blueprint(auth_bp, url_prefix='/api/auth')
     flask_app.register_blueprint(tickets_bp, url_prefix='/api/tickets')
     flask_app.register_blueprint(inventario_bp, url_prefix='/api/inventario')
     flask_app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     flask_app.register_blueprint(categorias_bp, url_prefix='/api/categorias')
+    flask_app.register_blueprint(base_conocimiento_bp, url_prefix='/api/base-conocimiento')
 
     # Crear tablas en base de datos si no existen
     with flask_app.app_context():

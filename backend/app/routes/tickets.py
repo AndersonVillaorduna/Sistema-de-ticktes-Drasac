@@ -371,3 +371,21 @@ def confirmar_resolucion(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Error interno", "message": str(e)}), 500
+
+@tickets_bp.route('/<int:id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_ticket(id):
+    current_user_id = int(get_jwt_identity())
+    usuario = Usuario.query.get(current_user_id)
+    
+    if not usuario or usuario.rol != 'admin':
+        return jsonify({"error": "No autorizado", "message": "Solo administradores pueden eliminar tickets."}), 403
+
+    ticket = Ticket.query.get_or_404(id)
+    try:
+        db.session.delete(ticket)
+        db.session.commit()
+        return jsonify({"message": "Ticket eliminado correctamente."}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Error de servidor", "message": str(e)}), 500

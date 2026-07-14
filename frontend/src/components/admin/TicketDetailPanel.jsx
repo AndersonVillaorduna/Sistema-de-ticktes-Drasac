@@ -6,7 +6,7 @@ import { StatusBadge } from '../shared/Badge';
 import {
   ArrowLeft, MessageSquare, Bot, AlertTriangle, CheckCircle2,
   Send, Calendar, Layers, Settings, Shield,
-  Loader2, Sparkles, Laptop, User, Clock, Hash, Tag,
+  Loader2, Sparkles, Laptop, User, Clock, Hash, Tag, Trash2
 } from 'lucide-react';
 
 export default function AdminTicketDetail({ ticketId, onBack }) {
@@ -26,6 +26,7 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
   const [categorias, setCategorias] = useState([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const chatEndRef = useRef(null);
 
   const loadTicket = async () => {
@@ -86,6 +87,18 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
     setSavingSettings(false);
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm('¿Estás absolutamente seguro de que deseas eliminar este ticket? Esta acción no se puede deshacer.')) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/tickets/${ticketId}`);
+      onBack();
+    } catch (error) {
+      alert('Error al eliminar el ticket');
+      setDeleting(false);
+    }
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">
       <Loader2 className="w-6 h-6 text-primary animate-spin" />
@@ -94,7 +107,7 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
   if (!ticket) return null;
 
   return (
-    <div className="p-5 md:p-8 lg:p-10 space-y-6">
+    <div className="p-5 md:p-8 lg:px-10 lg:py-12 space-y-8">
       <div className="flex items-center gap-3">
         <button onClick={onBack}
           className="w-10 h-10 rounded-xl border border-neutral-200 flex items-center justify-center text-neutral-500 hover:bg-neutral-50 hover:border-neutral-300 transition-all shrink-0">
@@ -338,6 +351,25 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
               </div>
             </div>
           </div>
+          
+          {user?.rol === 'admin' && (
+            <div className="bg-white rounded-2xl border border-red-100 p-6 shadow-sm">
+              <h4 className="text-[10px] font-bold text-red-400 uppercase tracking-[0.15em] mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Zona de Peligro
+              </h4>
+              <p className="text-xs text-neutral-500 mb-4 leading-relaxed">
+                Al eliminar este ticket, se borrarán de forma permanente todos sus comentarios y datos asociados.
+              </p>
+              <button 
+                onClick={handleDelete}
+                disabled={deleting}
+                className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-bold text-sm bg-red-50 hover:bg-red-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Eliminar Ticket
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
