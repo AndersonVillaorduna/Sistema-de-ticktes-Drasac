@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { StatusBadge } from '../../components/shared/Badge';
 import LoadingSpinner from '../../components/shared/LoadingSpinner';
@@ -17,6 +18,7 @@ const filterTabs = [
 ];
 
 export default function AdminTickets() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [filter, setFilter] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
@@ -90,15 +92,15 @@ export default function AdminTickets() {
     <div className="p-5 md:p-8 lg:p-10 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-neutral-900">Gestión de Tickets</h2>
+          <h2 className="text-neutral-900" style={{ fontSize: '24px', fontWeight: 'bold' }}>Gestión de Tickets</h2>
           <p className="text-sm text-neutral-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''} en el sistema</p>
         </div>
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
           <div className="relative hidden sm:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+            <Search className="text-neutral-400 pointer-events-none" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px' }} />
             <input type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Buscar..."
-              className="rounded-lg py-2 pl-9 pr-3 text-sm border border-neutral-200 focus:border-primary focus:outline-none w-44" />
+              className="rounded-lg py-2 pr-3 text-sm border border-neutral-200 focus:border-primary focus:outline-none w-44" style={{ paddingLeft: '36px' }} />
           </div>
           <button type="submit" className="p-2.5 rounded-lg border border-neutral-200 text-neutral-500 hover:bg-neutral-50 transition-all sm:hidden">
             <Search className="w-4 h-4" />
@@ -189,7 +191,7 @@ export default function AdminTickets() {
                 </div>
               ) : (
                 <>
-                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+                  <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
                     <div className="flex items-center gap-3 mb-5 pb-4 border-b border-neutral-100">
                       <div className="w-11 h-11 rounded-xl bg-[#1B3C5C]/10 flex items-center justify-center shrink-0">
                         <Ticket className="w-5 h-5 text-[#1B3C5C]" />
@@ -219,13 +221,14 @@ export default function AdminTickets() {
                       </div>
                     </div>
                     <button onClick={() => navigate(`/admin/tickets/${ticketDetail.id}`)}
-                      className="mt-5 w-full py-3 rounded-xl bg-[#1B3C5C]/5 border border-[#1B3C5C]/15 text-[#1B3C5C] text-xs font-bold hover:bg-[#1B3C5C]/10 transition-all">
+                      className="mt-5 w-full py-3 bg-[#1B3C5C] text-white text-[13px] font-bold hover:bg-[#142E47] transition-all shadow-md hover:shadow-lg"
+                      style={{ borderRadius: '12px' }}>
                       Ver detalle completo →
                     </button>
                   </div>
 
                   {ticketDetail.respuesta_ia && (
-                    <div className="rounded-2xl border border-purple-200 p-6 shadow-sm" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #fff 100%)' }}>
+                    <div className="border border-purple-200 shadow-sm" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #fff 100%)', borderRadius: '16px', padding: '24px', marginTop: '24px' }}>
                       <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center">
                           <Cpu className="w-5 h-5 text-purple-600" />
@@ -237,7 +240,7 @@ export default function AdminTickets() {
                           <p className="text-[11px] text-purple-400 mt-0.5">Sugerencia automática</p>
                         </div>
                       </div>
-                      <div className="p-4 rounded-xl border border-purple-100 text-sm text-neutral-700 leading-relaxed italic bg-white/80">
+                      <div className="border border-purple-100 text-sm text-neutral-700 leading-relaxed italic bg-white/80" style={{ borderRadius: '12px', padding: '16px' }}>
                         &ldquo;{ticketDetail.respuesta_ia}&rdquo;
                       </div>
                       {ticketDetail.confianza_ia != null && (
@@ -254,7 +257,7 @@ export default function AdminTickets() {
                     </div>
                   )}
 
-                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+                  <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px', marginTop: '24px' }}>
                     <h4 className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.15em] flex items-center gap-2 mb-5">
                       <MessageSquare className="w-4 h-4" /> Comentarios
                       <span className="ml-auto text-neutral-300 normal-case tracking-normal">({(ticketDetail.comentarios || []).length})</span>
@@ -268,17 +271,19 @@ export default function AdminTickets() {
                       <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
                         {ticketDetail.comentarios.map((com, idx) => {
                           const isIA = com.usuario_nombre?.includes('Inteligencia Artificial');
+                          const isMe = com.usuario_nombre === user?.nombre;
+                          
                           return (
-                            <div key={com.id || idx} className={`flex gap-2.5 ${isIA ? 'flex-row-reverse' : ''}`}>
-                              <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${isIA ? 'bg-purple-500' : 'bg-[#1B3C5C]'}`}>
-                                {isIA ? <Bot className="w-3.5 h-3.5" /> : com.usuario_nombre?.charAt(0)?.toUpperCase()}
+                            <div key={com.id || idx} className={`flex gap-2.5 ${isIA || isMe ? 'flex-row-reverse' : ''}`}>
+                              <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${isIA ? 'bg-purple-500' : isMe ? 'bg-primary' : 'bg-[#1B3C5C]'}`}>
+                                {isIA ? <Bot className="w-3.5 h-3.5" /> : (isMe ? 'Tú' : com.usuario_nombre?.charAt(0)?.toUpperCase())}
                               </div>
-                              <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${isIA ? 'bg-purple-50 border border-purple-100 rounded-tr-sm' : 'bg-neutral-50 border border-neutral-100 rounded-tl-sm'}`}>
+                              <div className={`max-w-[80%] border ${isIA ? 'bg-purple-50 border-purple-100' : isMe ? 'bg-primary/5 border-primary/20' : 'bg-neutral-50 border-neutral-100'}`} style={{ borderRadius: (isIA || isMe) ? '16px 4px 16px 16px' : '4px 16px 16px 16px', padding: '12px 16px' }}>
                                 <div className="flex justify-between items-center gap-2 mb-1">
-                                  <strong className="text-[11px] text-neutral-700">{com.usuario_nombre}</strong>
+                                  <strong className={`text-[11px] ${isMe ? 'text-primary' : 'text-neutral-700'}`}>{isMe ? 'Tú' : com.usuario_nombre}</strong>
                                   <span className="text-[10px] text-neutral-400 whitespace-nowrap">{new Date(com.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
-                                <p className="text-neutral-700 leading-relaxed text-xs">{com.mensaje}</p>
+                                <p className="text-neutral-700 leading-relaxed text-[13px]">{com.mensaje}</p>
                               </div>
                             </div>
                           );
@@ -288,12 +293,12 @@ export default function AdminTickets() {
                   </div>
 
                   {ticketDetail.estado !== 'cerrado' && (
-                    <form onSubmit={handleComment} className="bg-white rounded-2xl border border-neutral-200 p-4 shadow-sm">
+                    <form onSubmit={handleComment} className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '16px', marginTop: '24px' }}>
                       <div className="flex gap-3">
                         <input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)}
                           placeholder="Escribe una respuesta..."
-                          className="flex-1 rounded-xl py-3 px-4 text-sm border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all" />
-                        <button type="submit" className="send-btn w-11 h-11 rounded-xl bg-[#1B3C5C] text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:bg-[#142E47] transition-all" disabled={sendingComment || !comentario.trim()}>
+                          className="flex-1 py-3 px-4 text-sm border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all" style={{ borderRadius: '12px' }} />
+                        <button type="submit" className="send-btn w-11 h-11 bg-[#1B3C5C] text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:bg-[#142E47] transition-all" style={{ borderRadius: '12px' }} disabled={sendingComment || !comentario.trim()}>
                           <Send className="w-4 h-4" />
                         </button>
                       </div>

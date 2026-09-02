@@ -133,33 +133,28 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+          <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
             <h3 className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.15em] mb-4">Descripción del problema</h3>
-            <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-line bg-neutral-50 rounded-xl p-5 border border-neutral-100">
+            <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-line bg-neutral-50 border border-neutral-100" style={{ borderRadius: '12px', padding: '20px' }}>
               {ticket.descripcion}
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 mt-6 pt-5 border-t border-neutral-100">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-neutral-100">
               {[
                 { icon: Calendar, label: 'Creado', value: new Date(ticket.created_at).toLocaleDateString('es-PE') },
                 { icon: Layers, label: 'Categoría', value: ticket.categoria_nombre || 'General' },
                 { icon: User, label: 'Reportado por', value: ticket.usuario_nombre },
                 { icon: Laptop, label: 'Equipos', value: ticket.equipos?.length > 0 ? `${ticket.equipos.length} vinculado(s)` : 'Ninguno' },
               ].map(({ icon: Icon, label, value }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
-                    <Icon className="w-4 h-4 text-neutral-500" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">{label}</p>
-                    <p className="text-xs font-semibold text-neutral-800 mt-0.5">{value}</p>
-                  </div>
+                <div key={label} className="bg-neutral-50 border border-neutral-100" style={{ borderRadius: '12px', padding: '12px' }}>
+                  <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}</p>
+                  <p className="text-xs font-semibold text-neutral-800">{value}</p>
                 </div>
               ))}
             </div>
           </div>
 
           {ticket.estado === 'resuelto por ia - pendiente' && (
-            <div className="rounded-2xl border border-purple-200 p-6 shadow-sm" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #fff 100%)' }}>
+            <div className="border border-purple-200 shadow-sm" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #fff 100%)', borderRadius: '16px', padding: '24px' }}>
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-11 h-11 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center">
                   <Bot className="w-5 h-5 text-purple-600" />
@@ -188,7 +183,7 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
             </div>
           )}
 
-          <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+          <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
             <h4 className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.15em] flex items-center gap-2 mb-5">
               <MessageSquare className="w-4 h-4" /> Seguimiento
               <span className="ml-auto text-neutral-300 normal-case tracking-normal">{comentarios.length} mensaje{comentarios.length !== 1 ? 's' : ''}</span>
@@ -196,19 +191,20 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
             <div className="space-y-4 max-h-[28rem] overflow-y-auto pr-2 mb-5">
               {comentarios.length > 0 ? comentarios.map((com, idx) => {
                 const isIA = com.usuario_nombre?.includes('Inteligencia Artificial');
+                const isMe = com.usuario_nombre === user?.nombre;
                 return (
-                  <div key={com.id || idx} className={`flex gap-3 ${isIA ? 'flex-row-reverse' : ''}`}>
-                    <div className={`w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${isIA ? 'bg-purple-500' : 'bg-[#1B3C5C]'}`}>
-                      {isIA ? <Bot className="w-4 h-4" /> : com.usuario_nombre?.charAt(0)?.toUpperCase()}
+                  <div key={com.id || idx} className={`flex gap-2.5 ${isIA || isMe ? 'flex-row-reverse' : ''}`} style={{ marginBottom: '20px' }}>
+                    <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${isIA ? 'bg-purple-500' : isMe ? 'bg-primary' : 'bg-[#1B3C5C]'}`}>
+                      {isIA ? <Bot className="w-3.5 h-3.5" /> : (isMe ? 'Tú' : com.usuario_nombre?.charAt(0)?.toUpperCase())}
                     </div>
-                    <div className={`max-w-[75%] rounded-2xl px-5 py-3.5 text-sm ${isIA ? 'bg-purple-50 border border-purple-100 rounded-tr-sm' : 'bg-neutral-50 border border-neutral-100 rounded-tl-sm'}`}>
-                      <div className="flex justify-between items-center gap-3 mb-1.5">
-                        <span className="font-bold text-xs text-neutral-700">{com.usuario_nombre}</span>
+                    <div className={`max-w-[80%] border ${isIA ? 'bg-purple-50 border-purple-100' : isMe ? 'bg-primary/5 border-primary/20' : 'bg-neutral-50 border-neutral-100'}`} style={{ borderRadius: (isIA || isMe) ? '16px 4px 16px 16px' : '4px 16px 16px 16px', padding: '8px 14px' }}>
+                      <div className="flex justify-between items-center gap-4 mb-1">
+                        <strong className={`text-[11px] ${isMe ? 'text-primary' : 'text-neutral-700'}`}>{isMe ? 'Tú' : com.usuario_nombre}</strong>
                         <span className="text-[10px] text-neutral-400 whitespace-nowrap">
                           {new Date(com.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <p className="text-neutral-700 leading-relaxed whitespace-pre-wrap">{com.mensaje}</p>
+                      <p className="text-neutral-700 leading-relaxed text-[13px] whitespace-pre-wrap">{com.mensaje}</p>
                     </div>
                   </div>
                 );
@@ -222,12 +218,12 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
               <div ref={chatEndRef} />
             </div>
             {ticket.estado !== 'cerrado' ? (
-              <form onSubmit={handleCommentSubmit} className="flex gap-3 pt-4 border-t border-neutral-100">
+              <form onSubmit={handleCommentSubmit} className="flex gap-3 pt-5 border-t border-neutral-100">
                 <input type="text" value={nuevoComentario} onChange={(e) => setNuevoComentario(e.target.value)}
                   placeholder="Escribe una respuesta..."
-                  className="flex-1 rounded-xl py-3.5 px-5 text-sm border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all" />
+                  className="flex-1 py-3.5 px-5 text-sm border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all" style={{ borderRadius: '12px' }} />
                 <button type="submit" disabled={sendingComment || !nuevoComentario.trim()}
-                  className="w-12 h-12 rounded-xl bg-[#1B3C5C] text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:bg-[#142E47] transition-all shadow-sm">
+                  className="w-12 h-12 bg-[#1B3C5C] text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:bg-[#142E47] transition-all shadow-sm" style={{ borderRadius: '12px' }}>
                   {sendingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </form>
@@ -240,18 +236,18 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
         </div>
 
         <div className="space-y-5">
-          <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm sticky top-5">
+          <div className="bg-white border border-neutral-200 shadow-sm sticky top-5" style={{ borderRadius: '16px', padding: '24px' }}>
             <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-neutral-100">
               <div className="w-9 h-9 rounded-xl bg-[#1B3C5C]/10 flex items-center justify-center">
                 <Shield className="w-4.5 h-4.5 text-[#1B3C5C]" />
               </div>
               <h4 className="text-sm font-bold text-neutral-900">Administrar Ticket</h4>
             </div>
-            <div className="space-y-4 text-sm">
-              <div className="space-y-1.5">
-                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Estado</label>
+            <div className="text-sm">
+              <div style={{ marginBottom: '16px' }}>
+                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-1.5">Estado</label>
                 <select value={estado} onChange={(e) => setEstado(e.target.value)}
-                  className="w-full rounded-xl py-3 px-4 border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white">
+                  className="w-full border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white" style={{ borderRadius: '12px', padding: '12px 16px' }}>
                   <option value="abierto">Abierto</option>
                   <option value="en proceso">En Proceso</option>
                   <option value="resuelto por ia - pendiente">Solución IA (Pendiente)</option>
@@ -259,37 +255,37 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
                   <option value="cerrado">Cerrado</option>
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Prioridad</label>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-1.5">Prioridad</label>
                 <select value={prioridad} onChange={(e) => setPrioridad(e.target.value)}
-                  className="w-full rounded-xl py-3 px-4 border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white">
+                  className="w-full border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white" style={{ borderRadius: '12px', padding: '12px 16px' }}>
                   <option value="baja">Baja</option>
                   <option value="media">Media</option>
                   <option value="alta">Alta</option>
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Categoría</label>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-1.5">Categoría</label>
                 <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}
-                  className="w-full rounded-xl py-3 px-4 border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white">
+                  className="w-full border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white" style={{ borderRadius: '12px', padding: '12px 16px' }}>
                   <option value="">Sin categoría</option>
                   {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Técnico asignado</label>
+              <div style={{ marginBottom: '24px' }}>
+                <label className="block text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-1.5">Técnico asignado</label>
                 <select value={tecnicoId} onChange={(e) => setTecnicoId(e.target.value)}
-                  className="w-full rounded-xl py-3 px-4 border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white">
+                  className="w-full border border-neutral-200 focus:border-[#1B3C5C] focus:ring-4 focus:ring-[#1B3C5C]/5 outline-none transition-all text-sm bg-neutral-50 focus:bg-white" style={{ borderRadius: '12px', padding: '12px 16px' }}>
                   <option value="">Sin asignar</option>
                   {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                 </select>
               </div>
               <button onClick={handleUpdateSettings} disabled={savingSettings}
-                className={`w-full py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all mt-2 ${
+                className={`w-full py-3 text-[13px] font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-lg ${
                   settingsSaved
                     ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                    : 'bg-[#1B3C5C] text-white hover:bg-[#142E47] shadow-sm'
-                }`}>
+                    : 'bg-[#1B3C5C] text-white hover:bg-[#142E47]'
+                }`} style={{ borderRadius: '12px' }}>
                 {savingSettings ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
                 ) : settingsSaved ? (
@@ -302,7 +298,7 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
           </div>
 
           {ticket.equipos?.length > 0 && (
-            <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+            <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
               <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-neutral-100">
                 <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
                   <Laptop className="w-4 h-4 text-neutral-500" />
@@ -321,29 +317,29 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
             </div>
           )}
 
-          <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
-            <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-neutral-100">
+          <div className="bg-white border border-neutral-200 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
+            <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-neutral-100">
               <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
                 <User className="w-4 h-4 text-neutral-500" />
               </div>
               <h4 className="text-sm font-bold text-neutral-900">Información del Ticket</h4>
             </div>
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between">
+            <div className="text-xs">
+              <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
                 <span className="text-neutral-400 font-medium">Creado por</span>
                 <span className="font-semibold text-neutral-700">{ticket.usuario_nombre}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
                 <span className="text-neutral-400 font-medium">Técnico</span>
                 <span className="font-semibold text-neutral-700">{ticket.tecnico_nombre || 'Sin asignar'}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
                 <span className="text-neutral-400 font-medium">Prioridad</span>
                 <span className={`font-bold uppercase ${ticket.prioridad === 'alta' ? 'text-red-500' : ticket.prioridad === 'media' ? 'text-amber-500' : 'text-emerald-500'}`}>
                   {ticket.prioridad}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-neutral-400 font-medium">Clasificación IA</span>
                 <span className={`font-semibold ${ticket.clasificado_por_ia ? 'text-purple-600' : 'text-neutral-500'}`}>
                   {ticket.clasificado_por_ia ? 'Sí' : 'No'}
@@ -353,11 +349,11 @@ export default function AdminTicketDetail({ ticketId, onBack }) {
           </div>
           
           {user?.rol === 'admin' && (
-            <div className="bg-white rounded-2xl border border-red-100 p-6 shadow-sm">
+            <div className="bg-white border border-red-100 shadow-sm" style={{ borderRadius: '16px', padding: '24px' }}>
               <h4 className="text-[10px] font-bold text-red-400 uppercase tracking-[0.15em] mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" /> Zona de Peligro
               </h4>
-              <p className="text-xs text-neutral-500 mb-4 leading-relaxed">
+              <p className="text-xs text-neutral-500 mb-5 leading-relaxed">
                 Al eliminar este ticket, se borrarán de forma permanente todos sus comentarios y datos asociados.
               </p>
               <button 
