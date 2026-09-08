@@ -1,85 +1,79 @@
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import AdminLayout from './components/admin/AdminLayout';
-import PortalLayout from './components/portal/PortalLayout';
-import Login from './pages/Login';
-import AdminDashboard from './pages/admin/Dashboard';
-import AdminTickets from './pages/admin/Tickets';
-import AdminCreateTicket from './pages/admin/CreateTicket';
-import AdminTicketDetailPage from './pages/admin/TicketDetailPage';
-import AdminInventory from './pages/admin/Inventory';
-import KnowledgeBase from './pages/admin/KnowledgeBase';
-import Reports from './pages/admin/Reports';
-import MyTickets from './pages/portal/MyTickets';
-import NewTicket from './pages/portal/NewTicket';
-import AIHelp from './pages/portal/AIHelp';
-import PortalTicketDetail from './pages/portal/TicketDetail';
-import { Loader2 } from 'lucide-react';
+import { ThemeProvider } from './context/ThemeContext';
+import Layout from './components/Layout';
 
+// Páginas
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import TicketsList from './pages/TicketsList';
+import CreateTicket from './pages/CreateTicket';
+import TicketDetail from './pages/TicketDetail';
+import Inventory from './pages/Inventory';
+import Reports from './pages/Reports';
+import Users from './pages/Users';
+import KnowledgeBase from './pages/KnowledgeBase';
+
+// ─── Loading Spinner ──────────────────────────────────────────────────────────
 const LoadingScreen = () => (
-  <div className="min-h-screen flex items-center justify-center bg-neutral-50">
-    <div className="flex flex-col items-center gap-3">
-      <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      <p className="text-sm text-neutral-500">Cargando...</p>
+  <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30 animate-pulse">
+        <span className="text-white font-black text-lg">D</span>
+      </div>
+      <div className="flex gap-1">
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+      </div>
     </div>
   </div>
 );
 
-function PrivateRoute({ children, allowedRoles }) {
+// ─── Ruta privada (cualquier usuario autenticado) ─────────────────────────────
+const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.rol)) {
-    if (user.rol === 'admin' || user.rol === 'tecnico') return <Navigate to="/admin/dashboard" replace />;
-    return <Navigate to="/portal/mis-tickets" replace />;
-  }
-  return children;
-}
+  return <Layout>{children}</Layout>;
+};
 
-function AdminRoute({ children }) {
-  return <PrivateRoute allowedRoles={['admin', 'tecnico']}><AdminLayout>{children}</AdminLayout></PrivateRoute>;
-}
-
-function PortalRoute({ children }) {
-  return <PrivateRoute><PortalLayout>{children}</PortalLayout></PrivateRoute>;
-}
-
-function RoleRedirect() {
-  const { user, loading } = useAuth();
+// ─── Ruta exclusiva para Admin y Técnico ─────────────────────────────────────
+const AdminRoute = ({ children }) => {
+  const { user, loading, isTecnico } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.rol === 'admin' || user.rol === 'tecnico') return <Navigate to="/admin/dashboard" replace />;
-  return <Navigate to="/portal/mis-tickets" replace />;
-}
+  if (!isTecnico) return <Navigate to="/" replace />;
+  return <Layout>{children}</Layout>;
+};
 
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<RoleRedirect />} />
+      <ThemeProvider>
+        <Router>
+          <Routes>
+            {/* Ruta Pública */}
+            <Route path="/login" element={<Login />} />
 
-          {/* Admin routes */}
-          <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          <Route path="/admin/tickets" element={<AdminRoute><AdminTickets /></AdminRoute>} />
-          <Route path="/admin/tickets/nuevo" element={<AdminRoute><AdminCreateTicket /></AdminRoute>} />
-          <Route path="/admin/tickets/:id" element={<AdminRoute><AdminTicketDetailPage /></AdminRoute>} />
-          <Route path="/admin/inventario" element={<AdminRoute><AdminInventory /></AdminRoute>} />
-          <Route path="/admin/conocimiento" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
-          <Route path="/admin/reportes" element={<AdminRoute><Reports /></AdminRoute>} />
-          <Route path="/admin/configuracion" element={<AdminRoute><div className="text-center py-12 text-neutral-500"><p className="text-lg font-bold">Configuración</p><p className="text-sm">Próximamente</p></div></AdminRoute>} />
+            {/* Rutas comunes (todos los autenticados) */}
+            <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+            <Route path="/tickets" element={<PrivateRoute><TicketsList /></PrivateRoute>} />
+            <Route path="/tickets/nuevo" element={<PrivateRoute><CreateTicket /></PrivateRoute>} />
+            <Route path="/tickets/:id" element={<PrivateRoute><TicketDetail /></PrivateRoute>} />
 
-          {/* Portal routes */}
-          <Route path="/portal/mis-tickets" element={<PortalRoute><MyTickets /></PortalRoute>} />
-          <Route path="/portal/mis-tickets/:id" element={<PortalRoute><PortalTicketDetail /></PortalRoute>} />
-          <Route path="/portal/nuevo-ticket" element={<PortalRoute><NewTicket /></PortalRoute>} />
-          <Route path="/portal/ayuda-ia" element={<PortalRoute><AIHelp /></PortalRoute>} />
+            {/* Rutas exclusivas Admin/Técnico */}
+            <Route path="/inventario" element={<AdminRoute><Inventory /></AdminRoute>} />
+            <Route path="/reportes" element={<AdminRoute><Reports /></AdminRoute>} />
+            <Route path="/usuarios" element={<AdminRoute><Users /></AdminRoute>} />
+            <Route path="/base-conocimiento" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
 
-          {/* Catch all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Router>
+            {/* Redirección por defecto */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Router>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

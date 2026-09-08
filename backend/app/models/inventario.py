@@ -15,6 +15,7 @@ class Inventario(db.Model):
     anydesk_id = db.Column(db.String(50), nullable=True)
     asignado_a = db.Column(db.String(120), nullable=True)  # Nombre o correo del empleado que lo usa
     fecha_adquisicion = db.Column(db.DateTime, nullable=True)
+    fecha_entrega = db.Column(db.Date, nullable=True)  # Día en que se entregó el equipo (vida útil)
 
     # Relación muchos a muchos con tickets (a través de la tabla intermedia)
     tickets = db.relationship(
@@ -35,5 +36,6 @@ class Inventario(db.Model):
             'estado': self.estado,
             'anydesk_id': self.anydesk_id,
             'asignado_a': self.asignado_a,
-            'fecha_adquisicion': self.fecha_adquisicion.isoformat() if self.fecha_adquisicion else None
+            'fecha_adquisicion': self.fecha_adquisicion.isoformat() if self.fecha_adquisicion else None,
+            'fecha_entrega': self.fecha_entrega.isoformat() if self.fecha_entrega else None
         }

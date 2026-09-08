@@ -77,9 +77,26 @@ def create_app():
     with flask_app.app_context():
         import app.models  # Importar modelos para registrarlos
         db.create_all()
+        _ejecutar_migraciones()
 
     @flask_app.route('/health', methods=['GET'])
     def health():
         return jsonify({"status": "healthy", "database": "connected"}), 200
 
     return flask_app
+
+
+def _ejecutar_migraciones():
+    """Migraciones ligeras para bases de datos ya creadas
+    (db.create_all no modifica tablas existentes)."""
+    from sqlalchemy import text
+    try:
+        with db.engine.connect() as conn:
+            columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(inventario)"))]
+            if columnas and 'fecha_entrega' not in columnas:
+                conn.execute(text("ALTER TABLE inventario ADD COLUMN fecha_entrega DATE"))
+                conn.commit()
+                print("Migración aplicada: columna 'fecha_entrega' agregada a 'inventario'")
+    except Exception as e:
+        # Si el motor no es SQLite u ocurre otro fallo, no bloquear el arranque
+        print(f"Aviso: no se pudo verificar migraciones de inventario: {e}")

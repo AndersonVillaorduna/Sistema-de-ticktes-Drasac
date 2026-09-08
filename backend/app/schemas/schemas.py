@@ -35,6 +35,7 @@ class InventarioSchema(Schema):
     anydesk_id = fields.Str(allow_none=True)
     asignado_a = fields.Str(allow_none=True)
     fecha_adquisicion = fields.DateTime(allow_none=True)
+    fecha_entrega = fields.Date(allow_none=True)
 
 class TicketSchema(Schema):
     id = fields.Int(dump_only=True)

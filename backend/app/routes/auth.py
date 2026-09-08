@@ -87,3 +87,26 @@ def me():
 def obtener_tecnicos():
     tecnicos = Usuario.query.filter(Usuario.rol.in_(['tecnico', 'admin'])).all()
     return jsonify([t.to_dict() for t in tecnicos]), 200
+
+@auth_bp.route('/usuarios', methods=['GET'])
+@jwt_required()
+def obtener_usuarios():
+    current_user_id = int(get_jwt_identity())
+    current_user = Usuario.query.get(current_user_id)
+    if not current_user or current_user.rol not in ['admin', 'tecnico']:
+        return jsonify({"error": "No autorizado", "message": "Solo administradores y técnicos pueden ver los usuarios"}), 403
+
+    usuarios = Usuario.query.order_by(Usuario.created_at.desc()).all()
+
+    # Conteo de tickets por usuario
+    from app.models.ticket import Ticket
+    from sqlalchemy import func
+    conteos = dict(
+        db.session.query(Ticket.usuario_id, func.count(Ticket.id))
+        .group_by(Ticket.usuario_id).all()
+    )
+
+    return jsonify([
+        {**u.to_dict(), 'total_tickets': conteos.get(u.id, 0)}
+        for u in usuarios
+    ]), 200

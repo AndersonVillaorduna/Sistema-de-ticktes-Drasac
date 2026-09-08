@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   LayoutDashboard,
   Ticket,
@@ -12,13 +13,18 @@ import {
   X,
   Bot,
   ShieldCheck,
+  BarChart3,
+  Users as UsersIcon,
+  BookOpen,
   Zap,
   ChevronRight,
-  Bell,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
   const { user, logout, isTecnico, isAdmin } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,8 +44,10 @@ const Layout = ({ children }) => {
   const adminNav = [
     { path: '/',              label: 'Dashboard',          icon: LayoutDashboard, desc: 'Vista general del sistema' },
     { path: '/tickets',       label: 'Gestión de Tickets', icon: Ticket,           desc: 'Todos los tickets' },
-    { path: '/tickets/nuevo', label: 'Crear Ticket',       icon: PlusCircle,       desc: 'Registrar incidencia' },
     { path: '/inventario',    label: 'Inventario TI',      icon: Laptop,           desc: 'Equipos y activos' },
+    { path: '/usuarios',      label: 'Usuarios',           icon: UsersIcon,        desc: 'Cuentas registradas' },
+    { path: '/base-conocimiento', label: 'Artículos IA',   icon: BookOpen,         desc: 'Casos que resuelve la IA' },
+    { path: '/reportes',      label: 'Reportes',           icon: BarChart3,        desc: 'Métricas y analítica' },
   ];
 
   const navItems = isTecnico ? adminNav : empleadoNav;
@@ -56,6 +64,9 @@ const Layout = ({ children }) => {
     '/tickets': isTecnico ? 'Gestión de Tickets' : 'Mis Tickets',
     '/tickets/nuevo': 'Reportar Incidencia',
     '/inventario': 'Inventario TI',
+    '/usuarios': 'Gestión de Usuarios',
+    '/base-conocimiento': 'Artículos de la IA',
+    '/reportes': 'Reportes y Analítica',
   }[location.pathname] || 'Detalle de Ticket';
 
   const SidebarContent = () => (
@@ -209,8 +220,20 @@ const Layout = ({ children }) => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               IA Activa
             </div>
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+              className="w-8 h-8 rounded-lg flex items-center justify-center border transition-colors"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
             {/* User avatar */}
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xs font-bold border border-blue-500/30">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+              style={{ background: 'var(--accent-blue)' }}
+            >
               {user?.nombre?.charAt(0)?.toUpperCase()}
             </div>
           </div>

@@ -4,11 +4,20 @@ from app.models.inventario import Inventario
 from app.models.usuario import Usuario
 from app.schemas.schemas import InventarioSchema
 from app import db
-from datetime import datetime
+from datetime import datetime, date
 
 inventario_bp = Blueprint('inventario', __name__)
 inventario_schema = InventarioSchema()
 inventario_list_schema = InventarioSchema(many=True)
+
+def _parse_fecha_entrega(valor):
+    """Convierte 'YYYY-MM-DD' en date; devuelve None si es inválida o vacía."""
+    if not valor:
+        return None
+    try:
+        return date.fromisoformat(str(valor))
+    except ValueError:
+        return None
 
 def verificar_rol_permitido(permitidos):
     """Auxiliar para verificar si el usuario tiene un rol permitido."""
@@ -76,7 +85,8 @@ def crear_equipo():
         estado=data.get('estado', 'activo'),
         anydesk_id=data.get('anydesk_id'),
         asignado_a=data.get('asignado_a'),
-        fecha_adquisicion=fecha_adq
+        fecha_adquisicion=fecha_adq,
+        fecha_entrega=_parse_fecha_entrega(data.get('fecha_entrega'))
     )
 
     try:
@@ -126,6 +136,8 @@ def actualizar_equipo(id):
                 equipo.fecha_adquisicion = datetime.fromisoformat(value.replace('Z', ''))
             except ValueError:
                 pass
+        elif key == 'fecha_entrega':
+            equipo.fecha_entrega = _parse_fecha_entrega(value)
         elif key != 'id':
             setattr(equipo, key, value)
 
