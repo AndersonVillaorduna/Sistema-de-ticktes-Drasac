@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import {
-  AlertCircle, CheckCircle2, Loader2, Ticket, Send,
-  Bot, Zap, Laptop,
+  AlertCircle, Loader2, Ticket, Send,
+  Bot, Zap,
 } from 'lucide-react';
 
 const inputCls = 'input-glow w-full rounded-xl py-2.5 px-3.5 text-sm border text-white placeholder-slate-600 transition-all';
@@ -15,10 +15,7 @@ const CreateTicket = () => {
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [categoriaId, setCategoriaId] = useState('');
-  const [prioridad, setPrioridad] = useState('');
-  const [equiposIds, setEquiposIds] = useState([]);
   const [categorias, setCategorias] = useState([]);
-  const [inventario, setInventario] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingForm, setLoadingForm] = useState(true);
   const [error, setError] = useState('');
@@ -26,18 +23,18 @@ const CreateTicket = () => {
   const [iaLoading, setIaLoading] = useState(false);
   const [iaVisible, setIaVisible] = useState(false);
   const debounceRef = useRef(null);
+  const previewAbortRef = useRef(null);
 
   useEffect(() => {
-    Promise.all([api.get('/categorias'), api.get('/inventario')])
-      .then(([cats, inv]) => {
-        setCategorias(cats.data);
-        setInventario(inv.data);
-      })
+    api.get('/categorias')
+      .then((res) => setCategorias(res.data))
       .catch(() => setError('Error al cargar los datos del formulario.'))
       .finally(() => setLoadingForm(false));
   }, []);
 
-  // Vista previa de la IA: se consulta mientras el usuario escribe (mín. 30 caracteres)
+  // Vista previa de la IA: se consulta mientras el usuario escribe (mín. 30 caracteres).
+  // Debounce largo + cancelación de la petición anterior para no saturar la CPU
+  // con generaciones simultáneas de Ollama.
   useEffect(() => {
     if (!descripcion || descripcion.length < 30) {
       setIaVisible(false);
@@ -46,25 +43,27 @@ const CreateTicket = () => {
     }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
+      previewAbortRef.current?.abort();
+      const controller = new AbortController();
+      previewAbortRef.current = controller;
       setIaLoading(true);
       setIaVisible(true);
       try {
-        const res = await api.post('/tickets/ia-preview', { titulo, descripcion });
+        const res = await api.post('/tickets/ia-preview', { titulo, descripcion }, { signal: controller.signal });
         setIaSugerencia(res.data.sugerencia || res.data.respuesta_ia || '');
-      } catch {
-        setIaSugerencia('');
+      } catch (err) {
+        if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') {
+          setIaSugerencia('');
+        }
       } finally {
-        setIaLoading(false);
+        if (previewAbortRef.current === controller) {
+          setIaLoading(false);
+          previewAbortRef.current = null;
+        }
       }
-    }, 800);
+    }, 1500);
     return () => clearTimeout(debounceRef.current);
   }, [titulo, descripcion]);
-
-  const toggleEquipo = (id) => {
-    setEquiposIds((prev) =>
-      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
-    );
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -78,10 +77,8 @@ const CreateTicket = () => {
       const payload = {
         titulo: titulo.trim(),
         descripcion: descripcion.trim(),
-        equipos_ids: equiposIds,
       };
       if (categoriaId) payload.categoria_id = Number(categoriaId);
-      if (prioridad) payload.prioridad = prioridad;
 
       const res = await api.post('/tickets', payload);
       navigate(`/tickets/${res.data.ticket.id}`);
@@ -186,77 +183,22 @@ const CreateTicket = () => {
           </div>
         </div>
 
-        {/* Categoría y prioridad */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-              Categoría <span className="normal-case text-slate-600">(opcional, la IA la detecta)</span>
-            </label>
-            <select
-              value={categoriaId}
-              onChange={(e) => setCategoriaId(e.target.value)}
-              className={inputCls}
-              style={{ ...inputStyle, color: categoriaId ? '#e2e8f0' : '#64748b' }}
-            >
-              <option value="" style={optStyle}>Dejar que la IA clasifique (Recomendado)</option>
-              {categorias.map((cat) => (
-                <option key={cat.id} value={cat.id} style={optStyle}>{cat.nombre}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-              Prioridad <span className="normal-case text-slate-600">(opcional)</span>
-            </label>
-            <select
-              value={prioridad}
-              onChange={(e) => setPrioridad(e.target.value)}
-              className={inputCls}
-              style={{ ...inputStyle, color: prioridad ? '#e2e8f0' : '#64748b' }}
-            >
-              <option value="" style={optStyle}>La IA la determinará</option>
-              <option value="baja" style={optStyle}>Baja</option>
-              <option value="media" style={optStyle}>Media</option>
-              <option value="alta" style={optStyle}>Alta</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Equipos relacionados */}
+        {/* Categoría */}
         <div className="space-y-1.5">
-          <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
-            <Laptop className="w-3.5 h-3.5" />
-            Equipos relacionados <span className="normal-case text-slate-600">(opcional)</span>
+          <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+            Categoría <span className="normal-case text-slate-600">(opcional, la IA la detecta)</span>
           </label>
-          {inventario.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto p-1">
-              {inventario.map((eq) => (
-                <button
-                  key={eq.id}
-                  type="button"
-                  onClick={() => toggleEquipo(eq.id)}
-                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${
-                    equiposIds.includes(eq.id)
-                      ? 'border-blue-500/30 bg-blue-500/10'
-                      : 'border-white/5 bg-white/3 hover:bg-white/5'
-                  }`}
-                >
-                  <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                    equiposIds.includes(eq.id) ? 'bg-blue-500 border-blue-500' : 'border-white/20'
-                  }`}>
-                    {equiposIds.includes(eq.id) && <CheckCircle2 className="w-3 h-3 text-white" />}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200 truncate">{eq.nombre_equipo}</p>
-                    <p className="text-[10px] text-slate-600 truncate">{eq.tipo} · {eq.ubicacion_tienda}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[11px] text-slate-600">No hay equipos registrados en el inventario.</p>
-          )}
+          <select
+            value={categoriaId}
+            onChange={(e) => setCategoriaId(e.target.value)}
+            className={inputCls}
+            style={{ ...inputStyle, color: categoriaId ? '#e2e8f0' : '#64748b' }}
+          >
+            <option value="" style={optStyle}>Dejar que la IA clasifique (Recomendado)</option>
+            {categorias.map((cat) => (
+              <option key={cat.id} value={cat.id} style={optStyle}>{cat.nombre}</option>
+            ))}
+          </select>
         </div>
 
         {/* Acciones */}

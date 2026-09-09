@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   BarChart3,
   Users as UsersIcon,
+  UserCog,
   BookOpen,
   Zap,
   ChevronRight,
@@ -41,16 +42,36 @@ const Layout = ({ children }) => {
     { path: '/tickets/nuevo', label: 'Reportar Problema',icon: PlusCircle,       desc: 'Crear nuevo ticket' },
   ];
 
+  // Técnico: solo atención de tickets e inventario
+  const tecnicoNav = [
+    { path: '/',              label: 'Mi Panel',         icon: LayoutDashboard, desc: 'Resumen de mis tickets' },
+    { path: '/tickets',       label: 'Gestión de Tickets', icon: Ticket,         desc: 'Tickets de mis categorías' },
+    { path: '/inventario',    label: 'Inventario TI',      icon: Laptop,         desc: 'Equipos y activos' },
+  ];
+
   const adminNav = [
     { path: '/',              label: 'Dashboard',          icon: LayoutDashboard, desc: 'Vista general del sistema' },
     { path: '/tickets',       label: 'Gestión de Tickets', icon: Ticket,           desc: 'Todos los tickets' },
     { path: '/inventario',    label: 'Inventario TI',      icon: Laptop,           desc: 'Equipos y activos' },
     { path: '/usuarios',      label: 'Usuarios',           icon: UsersIcon,        desc: 'Cuentas registradas' },
     { path: '/base-conocimiento', label: 'Artículos IA',   icon: BookOpen,         desc: 'Casos que resuelve la IA' },
+    { path: '/asignacion',    label: 'Asignación',         icon: UserCog,          desc: 'Técnico por categoría' },
     { path: '/reportes',      label: 'Reportes',           icon: BarChart3,        desc: 'Métricas y analítica' },
   ];
 
-  const navItems = isTecnico ? adminNav : empleadoNav;
+  const navItems = isAdmin ? adminNav : isTecnico ? tecnicoNav : empleadoNav;
+
+  // Solo el ítem con la ruta más específica (prefijo más largo) se marca activo,
+  // así "/tickets/nuevo" no resalta también "Mis Tickets"
+  const rutaActiva = (() => {
+    const coincidencias = navItems.filter(
+      (item) =>
+        (item.path === '/' && location.pathname === '/') ||
+        (item.path !== '/' && (location.pathname === item.path || location.pathname.startsWith(item.path + '/')))
+    );
+    coincidencias.sort((a, b) => b.path.length - a.path.length);
+    return coincidencias[0]?.path || null;
+  })();
 
   const rolLabel = user?.rol === 'admin' ? 'Administrador' : user?.rol === 'tecnico' ? 'Técnico TI' : 'Empleado';
   const rolColor = user?.rol === 'admin'
@@ -60,12 +81,13 @@ const Layout = ({ children }) => {
     : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20';
 
   const pageTitle = {
-    '/': isTecnico ? 'Dashboard General' : 'Mi Panel',
+    '/': isAdmin ? 'Dashboard General' : isTecnico ? 'Mi Panel' : 'Mi Panel',
     '/tickets': isTecnico ? 'Gestión de Tickets' : 'Mis Tickets',
     '/tickets/nuevo': 'Reportar Incidencia',
     '/inventario': 'Inventario TI',
     '/usuarios': 'Gestión de Usuarios',
     '/base-conocimiento': 'Artículos de la IA',
+    '/asignacion': 'Asignación de Técnicos',
     '/reportes': 'Reportes y Analítica',
   }[location.pathname] || 'Detalle de Ticket';
 
@@ -80,7 +102,7 @@ const Layout = ({ children }) => {
           <div>
             <h1 className="font-black text-white text-base tracking-widest leading-none">DRASAC</h1>
             <p className="text-[10px] text-blue-400 font-semibold tracking-widest uppercase mt-0.5">
-              {isTecnico ? 'Panel Admin' : 'Soporte TI'}
+              {isAdmin ? 'Panel Admin' : isTecnico ? 'Soporte Técnico' : 'Soporte TI'}
             </p>
           </div>
         </div>
@@ -93,7 +115,7 @@ const Layout = ({ children }) => {
           : <Bot className="w-4 h-4 text-emerald-400 shrink-0" />
         }
         <span className="text-[11px] font-semibold text-slate-400">
-          {isTecnico ? 'Portal Administrador' : 'Portal Empleado'}
+          {isAdmin ? 'Portal Administrador' : isTecnico ? 'Portal Técnico' : 'Portal Empleado'}
         </span>
       </div>
 
@@ -101,8 +123,7 @@ const Layout = ({ children }) => {
       <nav className="flex-1 px-4 space-y-1 mt-2 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path ||
-            (item.path !== '/' && location.pathname.startsWith(item.path));
+          const isActive = rutaActiva === item.path;
 
           return (
             <Link
@@ -209,7 +230,7 @@ const Layout = ({ children }) => {
             <div>
               <h2 className="text-sm font-bold text-white">{pageTitle}</h2>
               <p className="text-[10px] text-slate-500 hidden sm:block">
-                {isTecnico ? 'Panel de control administrativo' : 'Portal de soporte para empleados'}
+                {isAdmin ? 'Panel de control administrativo' : isTecnico ? 'Panel de soporte técnico' : 'Portal de soporte para empleados'}
               </p>
             </div>
           </div>

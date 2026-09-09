@@ -162,14 +162,16 @@ const TicketsList = () => {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <Link
-            to="/tickets/nuevo"
-            id="create-ticket-list-btn"
-            className="btn-glow text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-2"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span className="hidden sm:inline">Nuevo Ticket</span>
-          </Link>
+          {!isTecnico && (
+            <Link
+              to="/tickets/nuevo"
+              id="create-ticket-list-btn"
+              className="btn-glow text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-2"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Nuevo Ticket</span>
+            </Link>
+          )}
         </div>
       </div>
 

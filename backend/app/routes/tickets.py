@@ -4,9 +4,14 @@ from app.models.ticket import Ticket
 from app.models.usuario import Usuario
 from app.models.categoria import Categoria
 from app.models.comentario import Comentario
+from app.models.base_conocimiento import BaseConocimiento
 from app.models.inventario import Inventario
 from app.models.tecnico_categoria import TecnicoCategoria
-from app.services.ia_service import clasificar_y_resolver_ticket, buscar_solucion_en_base_de_conocimiento
+from app.services.ia_service import (
+    clasificar_y_resolver_ticket,
+    buscar_solucion_en_base_de_conocimiento,
+    articulo_coincide_con_texto,
+)
 from app.services.heuristica import clasificador_heuristico
 from app import db
 from datetime import datetime
@@ -38,27 +43,27 @@ def ia_preview():
 
     cat_nombre = ia_res.get('categoria', 'Software')
     confianza = ia_res.get('confianza', 0.5)
-    respuesta = ia_res.get('respuesta_sugerida')
+    respuesta = None
 
+    # 1. Si la IA eligió un artículo del centro de conocimiento, validarlo con
+    # palabras clave (los modelos pequeños a veces eligen un artículo 'parecido').
+    # Cualquier respuesta_sugerida sin artículo validado se descarta.
+    articulo_id = ia_res.get('articulo_id')
+    if articulo_id:
+        articulo = BaseConocimiento.query.get(articulo_id)
+        if articulo and articulo_coincide_con_texto(articulo, texto_completo):
+            respuesta = articulo.solucion
+
+    # 2. Búsqueda por palabras clave en la categoría detectada
     if not respuesta:
-        try:
-            from app.models.categoria import Categoria as CatModel
-            from app.models.base_conocimiento import BaseConocimiento
-            cat_obj = CatModel.query.filter_by(nombre=cat_nombre).first()
-            if cat_obj:
-                casos = BaseConocimiento.query.filter_by(categoria_id=cat_obj.id).all()
-                mejor = None
-                max_coins = 0
-                for caso in casos:
-                    palabras = [p.strip().lower() for p in caso.palabras_clave.split(',') if p.strip()]
-                    coins = sum(1 for p in palabras if p in texto_completo)
-                    if coins > max_coins:
-                        max_coins = coins
-                        mejor = caso
-                if mejor:
-                    respuesta = mejor.solucion
-        except Exception:
-            pass
+        cat_obj = Categoria.query.filter_by(nombre=cat_nombre).first()
+        respuesta = buscar_solucion_en_base_de_conocimiento(
+            cat_obj.id if cat_obj else None, titulo, descripcion
+        )
+
+    # 3. Última oportunidad: búsqueda global en todos los artículos
+    if not respuesta:
+        respuesta = buscar_solucion_en_base_de_conocimiento(None, titulo, descripcion)
 
     if not respuesta:
         if usando_ia:
@@ -107,12 +112,34 @@ def crear_ticket():
         categoria_obj = Categoria.query.filter_by(nombre=cat_nombre).first()
         categoria_id = categoria_obj.id if categoria_obj else None
 
-    # Usar prioridad del usuario si la proporcionó, si no usar la de la IA
-    prioridad = user_prioridad if user_prioridad in ['baja', 'media', 'alta'] else ia_res.get('prioridad', 'media')
+    # Usar prioridad elegida por el usuario; si no, por defecto 'media'
+    # (la IA no clasifica prioridad)
+    prioridad = user_prioridad if user_prioridad in ['baja', 'media', 'alta'] else 'media'
 
-    # 3. Si la IA detecta que es caso conocido y tiene buena confianza pero no devolvió solución,
-    # buscamos en la base_conocimiento local por palabras clave
-    if categoria_id and (es_caso_conocido or confianza > 0.8) and not respuesta_sugerida:
+    # 3. Si la IA encontró un artículo del centro de conocimiento que coincide,
+    # validamos que realmente coincida con el ticket (doble chequeo por palabras
+    # clave, los modelos pequeños a veces eligen un artículo 'parecido' por error)
+    articulo_id = ia_res.get('articulo_id')
+    texto_ticket = (titulo + " " + descripcion).lower()
+
+    articulo = BaseConocimiento.query.get(articulo_id) if articulo_id else None
+    if articulo and articulo_coincide_con_texto(articulo, texto_ticket):
+        respuesta_sugerida = articulo.solucion
+        es_caso_conocido = True
+        # Alinear la categoría con la del artículo si el usuario no eligió una
+        if not user_categoria_id and articulo.categoria_id:
+            categoria_id = articulo.categoria_id
+    else:
+        # La IA se equivocó de artículo (o el match es débil): descartar la
+        # solución sugerida para que el ticket vaya a un técnico
+        articulo = None
+        articulo_id = None
+        if usando_ia and respuesta_sugerida and es_caso_conocido:
+            respuesta_sugerida = None
+            es_caso_conocido = False
+
+    # Si no hubo artículo válido, probamos búsqueda local por palabras clave
+    if not articulo_id and categoria_id and (es_caso_conocido or confianza > 0.8) and not respuesta_sugerida:
         solucion_local = buscar_solucion_en_base_de_conocimiento(categoria_id, titulo, descripcion)
         if solucion_local:
             respuesta_sugerida = solucion_local
@@ -132,9 +159,11 @@ def crear_ticket():
                 tecnico_id = primer_tecnico.id
 
     # 5. Determinar estado inicial
-    # Si confianza > 85% y hay una solución sugerida, se pre-resuelve por la IA
+    # Si la IA encontró un artículo del centro de conocimiento que resuelve el caso,
+    # se pre-resuelve por la IA (no satura a los técnicos). Si fue solo por confianza
+    # alta sin artículo, exigimos confianza >= 85%.
     estado_inicial = 'abierto'
-    if usando_ia and confianza >= 0.85 and es_caso_conocido and respuesta_sugerida:
+    if usando_ia and es_caso_conocido and respuesta_sugerida and (articulo_id or confianza >= 0.85):
         estado_inicial = 'resuelto por ia - pendiente'
 
     # Crear Ticket
@@ -201,8 +230,16 @@ def listar_tickets():
     if usuario.rol == 'usuario':
         query = query.filter(Ticket.usuario_id == current_user_id)
     elif usuario.rol == 'tecnico':
-        # Los técnicos pueden ver todos para autoasignación, pero ordenamos primero los de ellos
-        pass
+        # Los técnicos solo ven los tickets de las categorías que atienden
+        # y los que se les asignaron directamente
+        from sqlalchemy import or_
+        categorias_del_tecnico = [
+            tc.categoria_id for tc in TecnicoCategoria.query.filter_by(tecnico_id=current_user_id).all()
+        ]
+        query = query.filter(or_(
+            Ticket.tecnico_id == current_user_id,
+            Ticket.categoria_id.in_(categorias_del_tecnico)
+        ))
 
     # Aplicar filtros
     if estado:
@@ -231,6 +268,12 @@ def obtener_ticket(id):
     # Validar permisos
     if usuario.rol == 'usuario' and ticket.usuario_id != current_user_id:
         return jsonify({"error": "No autorizado", "message": "No tiene permisos para ver este ticket"}), 403
+    if usuario.rol == 'tecnico':
+        categorias_del_tecnico = [
+            tc.categoria_id for tc in TecnicoCategoria.query.filter_by(tecnico_id=current_user_id).all()
+        ]
+        if ticket.tecnico_id != current_user_id and ticket.categoria_id not in categorias_del_tecnico:
+            return jsonify({"error": "No autorizado", "message": "Este ticket no pertenece a tus categorías asignadas"}), 403
 
     # Obtener comentarios asociados
     comentarios = Comentario.query.filter_by(ticket_id=ticket.id).order_by(Comentario.created_at.asc()).all()

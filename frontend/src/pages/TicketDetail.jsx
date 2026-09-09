@@ -123,7 +123,7 @@ const TicketDetail = () => {
   const puedeConfirmar = esPropietario && ticket.estado === 'resuelto por ia - pendiente';
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5 animate-fade-in">
+    <div className="max-w-6xl mx-auto space-y-5 animate-fade-in">
 
       {/* Header */}
       <div>
@@ -154,156 +154,167 @@ const TicketDetail = () => {
         </div>
       </div>
 
-      {/* Descripción */}
-      <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'var(--bg-card)' }}>
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Descripción del problema</p>
-        <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{ticket.descripcion}</p>
-      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
-      {/* Respuesta de la IA */}
-      {ticket.respuesta_ia && (
-        <div className="rounded-2xl border border-indigo-500/20 p-5" style={{ background: 'var(--panel-ai-bg)' }}>
-          <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-            <Bot className="w-3.5 h-3.5" /> Solución propuesta por la IA
-          </p>
-          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{ticket.respuesta_ia}</p>
+        {/* Columna izquierda: descripción + conversación */}
+        <div className="lg:col-span-2 space-y-5 min-w-0">
 
-          {puedeConfirmar && (
-            <div className="mt-4 pt-4 border-t border-white/5">
-              <p className="text-xs text-slate-400 mb-3 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-indigo-400" />
-                ¿Esta solución resolvió tu problema?
+          {/* Descripción */}
+          <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'var(--bg-card)' }}>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Descripción del problema</p>
+            <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{ticket.descripcion}</p>
+          </div>
+
+          {/* Conversación */}
+          <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: 'var(--bg-card)' }}>
+            <div className="p-4 border-b border-white/5">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-400" />
+                Conversación ({ticket.comentarios?.length || 0})
+              </h3>
+            </div>
+
+            <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+              {ticket.comentarios?.length > 0 ? (
+                ticket.comentarios.map((com) => {
+                  const esMio = com.usuario_id === user?.id;
+                  const esIA = com.usuario_rol === 'sistema' || com.usuario_nombre === 'Inteligencia Artificial Drasac';
+                  return (
+                    <div key={com.id} className={`flex ${esMio ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-4 py-3 border ${
+                        esIA
+                          ? 'bg-indigo-500/10 border-indigo-500/20'
+                          : esMio
+                          ? 'bg-blue-500/10 border-blue-500/20'
+                          : 'bg-white/3 border-white/5'
+                      }`}>
+                        <p className={`text-[10px] font-bold mb-1 ${esIA ? 'text-indigo-400' : esMio ? 'text-blue-400' : 'text-slate-500'}`}>
+                          {com.usuario_nombre} {esMio && '(tú)'}
+                        </p>
+                        <p className="text-slate-200 leading-relaxed whitespace-pre-wrap text-xs">{com.mensaje}</p>
+                        <p className="text-[9px] text-slate-600 mt-1.5">
+                          {new Date(com.created_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-600">
+                  <MessageSquare className="w-7 h-7 text-slate-700 mx-auto mb-2" />
+                  No hay mensajes aún. Sé el primero en escribir.
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleComentario} className="p-4 border-t border-white/5 flex gap-3">
+              <input
+                type="text"
+                value={comentario}
+                onChange={(e) => setComentario(e.target.value)}
+                placeholder="Escribe un mensaje…"
+                className="input-glow flex-1 rounded-xl py-2.5 px-4 text-sm border text-white placeholder-slate-600"
+                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+              />
+              <button
+                type="submit"
+                disabled={enviando || !comentario.trim()}
+                className="btn-glow px-4 py-2.5 rounded-xl text-white text-sm font-bold flex items-center gap-2 disabled:opacity-40"
+              >
+                {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Columna derecha: solución IA + gestión */}
+        <div className="space-y-5 lg:sticky lg:top-6 min-w-0">
+
+          {/* Respuesta de la IA */}
+          {ticket.respuesta_ia && (
+            <div className="rounded-2xl border border-indigo-500/20 p-5" style={{ background: 'var(--panel-ai-bg)' }}>
+              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Bot className="w-3.5 h-3.5" /> Solución propuesta por la IA
               </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleConfirmar(true)}
-                  className="btn-glow text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> Sí, quedó resuelto
-                </button>
-                <button
-                  onClick={() => handleConfirmar(false)}
-                  className="px-4 py-2.5 border border-white/8 text-slate-400 rounded-xl font-semibold hover:bg-white/5 hover:text-white transition-all text-xs"
-                >
-                  No, escalar a un técnico
-                </button>
+              <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{ticket.respuesta_ia}</p>
+
+              {puedeConfirmar && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <p className="text-xs text-slate-400 mb-3 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                    ¿Esta solución resolvió tu problema?
+                  </p>
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      onClick={() => handleConfirmar(true)}
+                      className="btn-glow text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Sí, quedó resuelto
+                    </button>
+                    <button
+                      onClick={() => handleConfirmar(false)}
+                      className="px-4 py-2.5 border border-white/8 text-slate-400 rounded-xl font-semibold hover:bg-white/5 hover:text-white transition-all text-xs"
+                    >
+                      No, escalar a un técnico
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Panel técnico (solo admin/técnico) */}
+          {isTecnico && (
+            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'var(--bg-card)' }}>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Gestión del ticket</p>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-slate-500 font-bold uppercase">Estado</label>
+                  <select
+                    value={ticket.estado}
+                    onChange={(e) => handlePatch('estado', e.target.value)}
+                    className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
+                    style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  >
+                    <option value="abierto" style={{ background: '#0d1428' }}>Abierto</option>
+                    <option value="en proceso" style={{ background: '#0d1428' }}>En Proceso</option>
+                    <option value="resuelto por ia - pendiente" style={{ background: '#0d1428' }}>Solución IA (Pendiente)</option>
+                    <option value="resuelto" style={{ background: '#0d1428' }}>Resuelto</option>
+                    <option value="cerrado" style={{ background: '#0d1428' }}>Cerrado</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-slate-500 font-bold uppercase">Prioridad</label>
+                  <select
+                    value={ticket.prioridad || 'media'}
+                    onChange={(e) => handlePatch('prioridad', e.target.value)}
+                    className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
+                    style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  >
+                    <option value="baja" style={{ background: '#0d1428' }}>Baja</option>
+                    <option value="media" style={{ background: '#0d1428' }}>Media</option>
+                    <option value="alta" style={{ background: '#0d1428' }}>Alta</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-slate-500 font-bold uppercase">Técnico asignado</label>
+                  <select
+                    value={ticket.tecnico_id || ''}
+                    onChange={(e) => handlePatch('tecnico_id', e.target.value)}
+                    className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
+                    style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: ticket.tecnico_id ? '#e2e8f0' : '#64748b' }}
+                  >
+                    <option value="" style={{ background: '#0d1428' }}>Sin asignar</option>
+                    {tecnicos.map((t) => (
+                      <option key={t.id} value={t.id} style={{ background: '#0d1428' }}>{t.nombre}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           )}
         </div>
-      )}
-
-      {/* Panel técnico (solo admin/técnico) */}
-      {isTecnico && (
-        <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'var(--bg-card)' }}>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Gestión del ticket</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <label className="block text-[10px] text-slate-500 font-bold uppercase">Estado</label>
-              <select
-                value={ticket.estado}
-                onChange={(e) => handlePatch('estado', e.target.value)}
-                className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
-                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
-              >
-                <option value="abierto" style={{ background: '#0d1428' }}>Abierto</option>
-                <option value="en proceso" style={{ background: '#0d1428' }}>En Proceso</option>
-                <option value="resuelto por ia - pendiente" style={{ background: '#0d1428' }}>Solución IA (Pendiente)</option>
-                <option value="resuelto" style={{ background: '#0d1428' }}>Resuelto</option>
-                <option value="cerrado" style={{ background: '#0d1428' }}>Cerrado</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] text-slate-500 font-bold uppercase">Prioridad</label>
-              <select
-                value={ticket.prioridad || 'media'}
-                onChange={(e) => handlePatch('prioridad', e.target.value)}
-                className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
-                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
-              >
-                <option value="baja" style={{ background: '#0d1428' }}>Baja</option>
-                <option value="media" style={{ background: '#0d1428' }}>Media</option>
-                <option value="alta" style={{ background: '#0d1428' }}>Alta</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] text-slate-500 font-bold uppercase">Técnico asignado</label>
-              <select
-                value={ticket.tecnico_id || ''}
-                onChange={(e) => handlePatch('tecnico_id', e.target.value)}
-                className="input-glow w-full rounded-xl py-2 px-3 text-xs border text-white"
-                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: ticket.tecnico_id ? '#e2e8f0' : '#64748b' }}
-              >
-                <option value="" style={{ background: '#0d1428' }}>Sin asignar</option>
-                {tecnicos.map((t) => (
-                  <option key={t.id} value={t.id} style={{ background: '#0d1428' }}>{t.nombre}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Conversación */}
-      <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: 'var(--bg-card)' }}>
-        <div className="p-4 border-b border-white/5">
-          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-blue-400" />
-            Conversación ({ticket.comentarios?.length || 0})
-          </h3>
-        </div>
-
-        <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
-          {ticket.comentarios?.length > 0 ? (
-            ticket.comentarios.map((com) => {
-              const esMio = com.usuario_id === user?.id;
-              const esIA = com.usuario_rol === 'sistema' || com.usuario_nombre === 'Inteligencia Artificial Drasac';
-              return (
-                <div key={com.id} className={`flex ${esMio ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-3 border ${
-                    esIA
-                      ? 'bg-indigo-500/10 border-indigo-500/20'
-                      : esMio
-                      ? 'bg-blue-500/10 border-blue-500/20'
-                      : 'bg-white/3 border-white/5'
-                  }`}>
-                    <p className={`text-[10px] font-bold mb-1 ${esIA ? 'text-indigo-400' : esMio ? 'text-blue-400' : 'text-slate-500'}`}>
-                      {com.usuario_nombre} {esMio && '(tú)'}
-                    </p>
-                    <p className="text-slate-200 leading-relaxed whitespace-pre-wrap text-xs">{com.mensaje}</p>
-                    <p className="text-[9px] text-slate-600 mt-1.5">
-                      {new Date(com.created_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="py-8 text-center text-xs text-slate-600">
-              <MessageSquare className="w-7 h-7 text-slate-700 mx-auto mb-2" />
-              No hay mensajes aún. Sé el primero en escribir.
-            </div>
-          )}
-          <div ref={chatEndRef} />
-        </div>
-
-        <form onSubmit={handleComentario} className="p-4 border-t border-white/5 flex gap-3">
-          <input
-            type="text"
-            value={comentario}
-            onChange={(e) => setComentario(e.target.value)}
-            placeholder="Escribe un mensaje…"
-            className="input-glow flex-1 rounded-xl py-2.5 px-4 text-sm border text-white placeholder-slate-600"
-            style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
-          />
-          <button
-            type="submit"
-            disabled={enviando || !comentario.trim()}
-            className="btn-glow px-4 py-2.5 rounded-xl text-white text-sm font-bold flex items-center gap-2 disabled:opacity-40"
-          >
-            {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </form>
       </div>
     </div>
   );

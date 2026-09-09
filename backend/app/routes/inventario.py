@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.inventario import Inventario
 from app.models.usuario import Usuario
 from app.schemas.schemas import InventarioSchema
+from app.services.ia_service import generar_informe_equipos
 from app import db
 from datetime import datetime, date
 
@@ -169,3 +170,54 @@ def eliminar_equipo(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Error interno", "message": str(e)}), 500
+
+@inventario_bp.route('/informe-ia', methods=['POST'])
+@jwt_required()
+def informe_ia_equipos():
+    """Informe bajo demanda generado por la IA sobre los equipos más antiguos del inventario."""
+    permitido, response, status = verificar_rol_permitido(['admin', 'tecnico'])
+    if not permitido:
+        return response, status
+
+    hoy = date.today()
+    equipos = Inventario.query.filter(Inventario.estado != 'de_baja').all()
+    if not equipos:
+        return jsonify({"error": "Sin datos", "message": "No hay equipos registrados en el inventario."}), 404
+
+    # Calcular antigüedad en años a partir de la fecha de entrega
+    datos = []
+    for eq in equipos:
+        anios = None
+        if eq.fecha_entrega:
+            anios = (hoy - eq.fecha_entrega).days / 365.25
+        datos.append({
+            'nombre': eq.nombre_equipo,
+            'tipo': eq.tipo,
+            'marca': eq.marca,
+            'modelo': eq.modelo,
+            'tienda': eq.ubicacion_tienda,
+            'fecha_entrega': eq.fecha_entrega.isoformat() if eq.fecha_entrega else None,
+            'anios': anios,
+            'estado': eq.estado,
+        })
+
+    datos.sort(key=lambda d: d['anios'] if d['anios'] is not None else -1, reverse=True)
+    # Solo los 20 más antiguos para mantener el prompt manejable
+    top = datos[:20]
+
+    informe = generar_informe_equipos(top, solo_antiguos=True)
+
+    if not informe:
+        # Fallback: informe plano generado localmente si Ollama no responde
+        lineas = [
+            f"- {d['nombre']} ({d['tipo']}) · {d['tienda']} · "
+            f"{'%.1f años' % d['anios'] if d['anios'] is not None else 'sin fecha'}"
+            for d in top if d['anios'] is None or d['anios'] >= 3
+        ] or ["- No hay equipos con 3 o más años de uso registrados."]
+        informe = (
+            "Resumen ejecutivo (generado sin IA, Ollama no disponible):\n\n"
+            "Prioridad de renovación (equipos con 3+ años):\n" + "\n".join(lineas)
+        )
+        return jsonify({"informe": informe, "generado_por_ia": False}), 200
+
+    return jsonify({"informe": informe, "generado_por_ia": True}), 200

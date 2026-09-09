@@ -14,6 +14,7 @@ import Inventory from './pages/Inventory';
 import Reports from './pages/Reports';
 import Users from './pages/Users';
 import KnowledgeBase from './pages/KnowledgeBase';
+import Asignacion from './pages/Asignacion';
 
 // ─── Loading Spinner ──────────────────────────────────────────────────────────
 const LoadingScreen = () => (
@@ -48,6 +49,15 @@ const AdminRoute = ({ children }) => {
   return <Layout>{children}</Layout>;
 };
 
+// ─── Ruta EXCLUSIVA del Administrador (el técnico no entra) ──────────────────
+const AdminOnlyRoute = ({ children }) => {
+  const { user, loading, isAdmin } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to="/" replace />;
+  return <Layout>{children}</Layout>;
+};
+
 function App() {
   return (
     <AuthProvider>
@@ -65,9 +75,12 @@ function App() {
 
             {/* Rutas exclusivas Admin/Técnico */}
             <Route path="/inventario" element={<AdminRoute><Inventory /></AdminRoute>} />
-            <Route path="/reportes" element={<AdminRoute><Reports /></AdminRoute>} />
-            <Route path="/usuarios" element={<AdminRoute><Users /></AdminRoute>} />
-            <Route path="/base-conocimiento" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
+
+            {/* Rutas EXCLUSIVAS del Administrador */}
+            <Route path="/reportes" element={<AdminOnlyRoute><Reports /></AdminOnlyRoute>} />
+            <Route path="/usuarios" element={<AdminOnlyRoute><Users /></AdminOnlyRoute>} />
+            <Route path="/base-conocimiento" element={<AdminOnlyRoute><KnowledgeBase /></AdminOnlyRoute>} />
+            <Route path="/asignacion" element={<AdminOnlyRoute><Asignacion /></AdminOnlyRoute>} />
 
             {/* Redirección por defecto */}
             <Route path="*" element={<Navigate to="/" replace />} />

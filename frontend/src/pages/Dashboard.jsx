@@ -74,9 +74,9 @@ const EmpleadoDashboard = ({ user, stats }) => (
     {/* Mini Stats para empleado */}
     <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
       {[
-        { label: 'Mis Tickets', value: stats?.mis_tickets?.total || 0, icon: Ticket, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/15', desc: 'Total enviados' },
-        { label: 'Pendientes', value: (stats?.mis_tickets?.abiertos || 0) + (stats?.mis_tickets?.en_proceso || 0), icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/15', desc: 'Esperando resolución' },
-        { label: 'Resueltos', value: stats?.mis_tickets?.cerrados || 0, icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/15', desc: 'Problemas solucionados' },
+        { label: 'Mis Tickets', value: stats?.totales?.tickets || 0, icon: Ticket, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/15', desc: 'Total enviados' },
+        { label: 'Pendientes', value: (stats?.totales?.abiertos || 0) + (stats?.totales?.en_proceso || 0) + (stats?.totales?.pendientes_ia || 0), icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/15', desc: 'Esperando resolución' },
+        { label: 'Resueltos', value: stats?.totales?.cerrados || 0, icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/15', desc: 'Problemas solucionados' },
       ].map((card, i) => {
         const Icon = card.icon;
         return (
@@ -144,7 +144,7 @@ const EmpleadoDashboard = ({ user, stats }) => (
             </div>
             <div>
               <p className="text-xs font-bold text-white">Asistente IA</p>
-              <p className="text-[10px] text-indigo-400">LLaMA 3.1 · Activo</p>
+              <p className="text-[10px] text-indigo-400">Qwen 2.5 · Activo</p>
             </div>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -248,10 +248,6 @@ const AdminDashboard = ({ user, stats }) => {
           <Link to="/reportes" className="flex items-center gap-2 text-xs font-bold py-2.5 px-4 rounded-xl border border-white/8 bg-white/3 text-slate-300 hover:text-white hover:bg-white/5 hover:border-blue-500/25 transition-all">
             <BarChart3 className="w-4 h-4" />
             <span className="hidden sm:inline">Ver Reportes</span>
-          </Link>
-          <Link to="/tickets/nuevo" className="btn-glow text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-2">
-            <PlusCircle className="w-4 h-4" />
-            Nuevo Ticket
           </Link>
         </div>
       </div>
@@ -425,7 +421,7 @@ const AdminDashboard = ({ user, stats }) => {
               </div>
               <div className="flex-1">
                 <p className="text-xs font-bold text-white">Motor IA</p>
-                <p className="text-[10px] text-indigo-400">Ollama · LLaMA 3.1 8B</p>
+                <p className="text-[10px] text-indigo-400">Ollama · Qwen 2.5 3B</p>
               </div>
               <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />

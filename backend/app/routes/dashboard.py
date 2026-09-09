@@ -4,10 +4,29 @@ from app.models.ticket import Ticket
 from app.models.usuario import Usuario
 from app.models.categoria import Categoria
 from app.models.inventario import Inventario
+from app.models.tecnico_categoria import TecnicoCategoria
 from app import db
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 dashboard_bp = Blueprint('dashboard', __name__)
+
+def _categorias_del_tecnico(tecnico_id):
+    return [
+        tc.categoria_id for tc in TecnicoCategoria.query.filter_by(tecnico_id=tecnico_id).all()
+    ]
+
+def _alcance_query(usuario, current_user_id):
+    """Query de tickets según rol: usuario ve lo suyo, técnico ve solo sus
+    categorías asignadas (y tickets asignados a él), admin ve todo."""
+    query = Ticket.query
+    if usuario.rol == 'usuario':
+        return query.filter(Ticket.usuario_id == current_user_id)
+    if usuario.rol == 'tecnico':
+        return query.filter(or_(
+            Ticket.tecnico_id == current_user_id,
+            Ticket.categoria_id.in_(_categorias_del_tecnico(current_user_id))
+        ))
+    return query
 
 @dashboard_bp.route('/stats', methods=['GET'])
 @jwt_required()
@@ -17,19 +36,13 @@ def obtener_estadisticas():
     if not usuario:
         return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
 
-    # Consulta básica de tickets filtrando por usuario si no es técnico/admin
-    query = Ticket.query
-    if usuario.rol == 'usuario':
-        query = query.filter(Ticket.usuario_id == current_user_id)
+    alcance = _alcance_query(usuario, current_user_id)
 
     # 1. Conteo por estados
-    stats_estado = db.session.query(
+    stats_estado = with_entities = alcance.with_entities(
         Ticket.estado, func.count(Ticket.id)
-    )
-    if usuario.rol == 'usuario':
-        stats_estado = stats_estado.filter(Ticket.usuario_id == current_user_id)
-    stats_estado = stats_estado.group_by(Ticket.estado).all()
-    
+    ).group_by(Ticket.estado).all()
+
     estados_dict = {
         'abierto': 0,
         'en proceso': 0,
@@ -41,14 +54,11 @@ def obtener_estadisticas():
         if est in estados_dict:
             estados_dict[est] = count
 
-    # 2. Conteo por categoría
-    stats_categoria = db.session.query(
+    # 2. Conteo por categoría (sobre el mismo alcance)
+    stats_categoria = alcance.with_entities(
         Categoria.nombre, func.count(Ticket.id)
-    ).join(Ticket, Ticket.categoria_id == Categoria.id)
-    if usuario.rol == 'usuario':
-        stats_categoria = stats_categoria.filter(Ticket.usuario_id == current_user_id)
-    stats_categoria = stats_categoria.group_by(Categoria.nombre).all()
-    
+    ).join(Categoria, Ticket.categoria_id == Categoria.id).group_by(Categoria.nombre).all()
+
     categorias_dict = {}
     for cat_name, count in stats_categoria:
         categorias_dict[cat_name] = count
@@ -62,26 +72,21 @@ def obtener_estadisticas():
     if usuario.rol in ['admin', 'tecnico']:
         inventario_total = Inventario.query.count()
         tecnicos_total = Usuario.query.filter_by(rol='tecnico').count()
-        
-        # Tickets resueltos por IA (aquellos cerrados o resueltos que se clasificaron por IA y no se escalaron)
-        resoluciones_ia = Ticket.query.filter(
+
+        resoluciones_ia = alcance.filter(
             Ticket.clasificado_por_ia == True,
             Ticket.estado.in_(['cerrado', 'resuelto']),
             Ticket.respuesta_ia != None
         ).count()
-        
-        resoluciones_humanas = Ticket.query.filter(
+
+        resoluciones_humanas = alcance.filter(
             Ticket.estado.in_(['cerrado', 'resuelto'])
         ).count() - resoluciones_ia
         if resoluciones_humanas < 0:
             resoluciones_humanas = 0
 
-    # 4. Tickets recientes
-    recent_query = Ticket.query
-    if usuario.rol == 'usuario':
-        recent_query = recent_query.filter(Ticket.usuario_id == current_user_id)
-    
-    tickets_recientes = recent_query.order_by(Ticket.created_at.desc()).limit(5).all()
+    # 4. Tickets recientes (mismo alcance)
+    tickets_recientes = alcance.order_by(Ticket.created_at.desc()).limit(5).all()
 
     return jsonify({
         "totales": {

@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import { exportarExcel } from '../utils/excel';
-import { Laptop, Plus, Edit2, Trash2, Search, Loader2, AlertCircle, FileDown } from 'lucide-react';
+import { Laptop, Plus, Edit2, Trash2, Search, Loader2, AlertCircle, FileDown, Bot, CheckCircle2 } from 'lucide-react';
 
 const inputCls = 'input-glow w-full rounded-xl py-2.5 px-3.5 text-sm border text-white placeholder-slate-600 transition-all';
 const inputStyle = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' };
@@ -26,6 +26,64 @@ const VIDASESTILOS = {
   naranja:{ badge: 'bg-amber-500/12 text-amber-400 border-amber-500/25',        barra: '#fbbf24' },
   rojo:   { badge: 'bg-red-500/12 text-red-400 border-red-500/25',              barra: '#f87171' },
   sin:    { badge: 'bg-white/5 text-slate-500 border-white/10',                 barra: '#475569' },
+};
+
+// ── Renderizado profesional del informe de la IA ─────────────────────────────
+// Convierte el texto plano en secciones ("Título:") y viñetas ("- ")
+const InformeRender = ({ texto }) => {
+  const bloques = [];
+  let viñetas = [];
+  const cerrarLista = () => {
+    if (viñetas.length) {
+      bloques.push({ tipo: 'lista', items: viñetas });
+      viñetas = [];
+    }
+  };
+  texto.split('\n').forEach((lineaRaw) => {
+    const linea = lineaRaw.trim();
+    if (!linea) return;
+    const esVineta = /^[-•]\s*/.test(linea) || /^\d+[.)]\s+/.test(linea);
+    if (esVineta) {
+      viñetas.push(linea.replace(/^[-•]\s*/, '').replace(/^\d+[.)]\s+/, ''));
+    } else if (linea.endsWith(':') && linea.length < 60) {
+      cerrarLista();
+      bloques.push({ tipo: 'titulo', texto: linea.replace(/:$/, '') });
+    } else {
+      cerrarLista();
+      bloques.push({ tipo: 'parrafo', texto: linea });
+    }
+  });
+  cerrarLista();
+
+  return (
+    <div className="space-y-1">
+      {bloques.map((b, i) => {
+        if (b.tipo === 'titulo') {
+          return (
+            <p key={i} className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mt-5 mb-2 flex items-center gap-2 first:mt-0">
+              <span className="w-4 h-0.5 bg-blue-400/60 rounded-full" />
+              {b.texto}
+            </p>
+          );
+        }
+        if (b.tipo === 'lista') {
+          return (
+            <ul key={i} className="space-y-2 mb-2">
+              {b.items.map((item, j) => (
+                <li key={j} className="flex items-start gap-2.5 text-xs text-slate-300 leading-relaxed">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400/70 mt-1.5 shrink-0" />
+                  <span className="min-w-0">{item}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={i} className="text-xs text-slate-300 leading-relaxed mb-2">{b.texto}</p>
+        );
+      })}
+    </div>
+  );
 };
 
 const Inventory = () => {
@@ -54,6 +112,31 @@ const Inventory = () => {
   const [anydeskId, setAnydeskId] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Informe IA de equipos antiguos (bajo demanda)
+  const [informeOpen, setInformeOpen] = useState(false);
+  const [informeTexto, setInformeTexto] = useState('');
+  const [informeIA, setInformeIA] = useState(true);
+  const [informeLoading, setInformeLoading] = useState(false);
+  const [informeError, setInformeError] = useState('');
+  const [informeCopiado, setInformeCopiado] = useState(false);
+
+  const handleInformeIA = async () => {
+    setInformeOpen(true);
+    setInformeLoading(true);
+    setInformeError('');
+    setInformeTexto('');
+    try {
+      const response = await api.post('/inventario/informe-ia');
+      setInformeTexto(response.data.informe);
+      setInformeIA(response.data.generado_por_ia);
+    } catch (err) {
+      console.error(err);
+      setInformeError(err.response?.data?.message || 'Error al generar el informe.');
+    } finally {
+      setInformeLoading(false);
+    }
+  };
 
   const fetchInventory = async () => {
     setLoading(true);
@@ -183,7 +266,6 @@ const Inventory = () => {
         item.marca || '',
         item.modelo || '',
         item.tipo,
-        item.numero_serie,
         item.fecha_entrega || '',
         vu.anios !== null ? Number(vu.anios.toFixed(1)) : '',
         nivelTexto,
@@ -195,7 +277,7 @@ const Inventory = () => {
 
     const hoy = new Date().toISOString().slice(0, 10);
     exportarExcel(
-      ['Equipo', 'Marca', 'Modelo', 'Tipo', 'N° de Serie', 'Fecha de Entrega', 'Años de Uso', 'Vida Útil', 'Tienda / Ubicación', 'AnyDesk ID', 'Estado'],
+      ['Equipo', 'Marca', 'Modelo', 'Tipo', 'Fecha de Entrega', 'Años de Uso', 'Vida Útil', 'Tienda / Ubicación', 'AnyDesk ID', 'Estado'],
       filas,
       `inventario_${hoy}.xlsx`
     );
@@ -227,6 +309,17 @@ const Inventory = () => {
             <FileDown className="w-4 h-4" />
             <span className="hidden sm:inline">Descargar Excel</span>
           </button>
+          {isTecnico && (
+            <button
+              onClick={handleInformeIA}
+              disabled={loading || items.length === 0}
+              title="La IA analiza los equipos más antiguos del inventario"
+              className="border border-blue-500/25 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs font-semibold py-2.5 px-4 rounded-xl transition-all duration-200 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Bot className="w-4 h-4" />
+              <span className="hidden sm:inline">Informe IA</span>
+            </button>
+          )}
           {isTecnico && (
             <button
               onClick={openAddModal}
@@ -402,6 +495,86 @@ const Inventory = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Modal Informe IA */}
+      {informeOpen && (
+        <Modal onClose={() => setInformeOpen(false)} maxW="max-w-2xl">
+          <div className="p-5 md:p-6 space-y-4">
+            {/* Cabecera del informe */}
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-white text-sm uppercase tracking-wider">
+                    Informe de Equipos Antiguos
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Inventario TI · {new Date().toLocaleString('es-PE', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+              <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase tracking-wider border shrink-0 ${
+                informeIA
+                  ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+              }`}>
+                {informeIA ? '✦ Generado por IA' : 'Sin IA'}
+              </span>
+            </div>
+
+            {informeLoading && (
+              <div className="py-12 flex flex-col items-center gap-3 text-slate-400 text-xs">
+                <div className="relative">
+                  <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
+                </div>
+                <p className="font-semibold text-slate-300">Analizando el inventario…</p>
+                <p className="text-[11px] text-slate-600">La IA está revisando la antigüedad de cada equipo, esto tarda unos segundos.</p>
+              </div>
+            )}
+
+            {!informeLoading && informeError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-xl flex items-start gap-2 text-xs">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{informeError}</span>
+              </div>
+            )}
+
+            {!informeLoading && !informeError && informeTexto && (
+              <div
+                className="rounded-xl border border-white/8 p-5 max-h-[55vh] overflow-y-auto"
+                style={{ background: 'rgba(255,255,255,0.02)' }}
+              >
+                <InformeRender texto={informeTexto} />
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="flex justify-end gap-2 pt-1">
+              {informeTexto && !informeLoading && !informeError && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(informeTexto);
+                    setInformeCopiado(true);
+                    setTimeout(() => setInformeCopiado(false), 2000);
+                  }}
+                  className="px-4 py-2.5 border border-white/8 text-slate-300 rounded-xl font-semibold hover:bg-white/5 hover:text-white transition-all text-xs flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className={`w-3.5 h-3.5 ${informeCopiado ? 'text-emerald-400' : ''}`} />
+                  {informeCopiado ? 'Copiado' : 'Copiar informe'}
+                </button>
+              )}
+              <button
+                onClick={() => setInformeOpen(false)}
+                className="px-4 py-2.5 border border-white/8 text-slate-400 rounded-xl font-semibold hover:bg-white/5 hover:text-white transition-all text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal Agregar / Editar */}
       {modalOpen && (
