@@ -1,12 +1,14 @@
 from flask import Blueprint, jsonify, request
+import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.categoria import Categoria
 from app.models.usuario import Usuario
 from app.models.tecnico_categoria import TecnicoCategoria
 from app.models.ticket import Ticket
 from app import db
-
+from sqlalchemy import func
 categorias_bp = Blueprint('categorias', __name__)
+logger = logging.getLogger('drasac.categorias')
 
 @categorias_bp.route('', methods=['GET'])
 @jwt_required()
@@ -20,6 +22,74 @@ def _verificar_admin():
     if not usuario or usuario.rol != 'admin':
         return None
     return usuario
+
+@categorias_bp.route('', methods=['POST'])
+@jwt_required()
+def crear_categoria():
+    """Crea una categoría personalizada. La IA la usa automáticamente
+    para clasificar tickets en los siguientes análisis."""
+    if not _verificar_admin():
+        return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
+
+    data = request.get_json() or {}
+    nombre = (data.get('nombre') or '').strip()
+    if not nombre:
+        return jsonify({"error": "Validación fallida", "message": "El nombre de la categoría es obligatorio"}), 400
+    if len(nombre) > 100:
+        return jsonify({"error": "Validación fallida", "message": "El nombre no puede superar 100 caracteres"}), 400
+
+    if Categoria.query.filter(func.lower(Categoria.nombre) == nombre.lower()).first():
+        return jsonify({"error": "Duplicado", "message": f"Ya existe la categoría '{nombre}'"}), 400
+
+    categoria = Categoria(nombre=nombre)
+    db.session.add(categoria)
+    db.session.commit()
+    return jsonify({"message": f"Categoría '{nombre}' creada", "categoria": categoria.to_dict()}), 201
+
+@categorias_bp.route('/<int:categoria_id>', methods=['PUT'])
+@jwt_required()
+def renombrar_categoria(categoria_id):
+    if not _verificar_admin():
+        return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
+
+    categoria = Categoria.query.get(categoria_id)
+    if not categoria:
+        return jsonify({"error": "No encontrado", "message": "Categoría no encontrada"}), 404
+
+    data = request.get_json() or {}
+    nombre = (data.get('nombre') or '').strip()
+    if not nombre:
+        return jsonify({"error": "Validación fallida", "message": "El nombre es obligatorio"}), 400
+
+    existente = Categoria.query.filter(func.lower(Categoria.nombre) == nombre.lower()).first()
+    if existente and existente.id != categoria_id:
+        return jsonify({"error": "Duplicado", "message": f"Ya existe la categoría '{nombre}'"}), 400
+
+    categoria.nombre = nombre
+    db.session.commit()
+    return jsonify({"message": "Categoría actualizada", "categoria": categoria.to_dict()}), 200
+
+@categorias_bp.route('/<int:categoria_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_categoria(categoria_id):
+    """Elimina una categoría solo si no tiene tickets asociados."""
+    if not _verificar_admin():
+        return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
+
+    categoria = Categoria.query.get(categoria_id)
+    if not categoria:
+        return jsonify({"error": "No encontrado", "message": "Categoría no encontrada"}), 404
+
+    if Ticket.query.filter_by(categoria_id=categoria_id).count() > 0:
+        return jsonify({
+            "error": "Categoría en uso",
+            "message": "No se puede eliminar: hay tickets asociados a esta categoría."
+        }), 400
+
+    TecnicoCategoria.query.filter_by(categoria_id=categoria_id).delete()
+    db.session.delete(categoria)
+    db.session.commit()
+    return jsonify({"message": f"Categoría '{categoria.nombre}' eliminada"}), 200
 
 @categorias_bp.route('/asignaciones', methods=['GET'])
 @jwt_required()

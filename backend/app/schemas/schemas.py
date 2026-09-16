@@ -4,7 +4,11 @@ class UsuarioSchema(Schema):
     id = fields.Int(dump_only=True)
     nombre = fields.Str(required=True, validate=validate.Length(min=2, max=100))
     email = fields.Email(required=True)
-    password = fields.Str(load_only=True, required=True, validate=validate.Length(min=6))
+    # Mínimo 8 caracteres, con al menos una letra y un número
+    password = fields.Str(load_only=True, required=True, validate=[
+        validate.Length(min=8, error="La contraseña debe tener al menos 8 caracteres."),
+        validate.Regexp(r'^(?=.*[A-Za-z])(?=.*\d).+$', error="La contraseña debe incluir letras y números."),
+    ])
     rol = fields.Str(validate=validate.OneOf(['admin', 'tecnico', 'usuario']))
     tienda_area = fields.Str(allow_none=True)
     created_at = fields.DateTime(dump_only=True)

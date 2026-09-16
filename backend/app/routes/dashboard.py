@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
+import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario
@@ -7,8 +8,9 @@ from app.models.inventario import Inventario
 from app.models.tecnico_categoria import TecnicoCategoria
 from app import db
 from sqlalchemy import func, or_
-
+from datetime import datetime, timedelta
 dashboard_bp = Blueprint('dashboard', __name__)
+logger = logging.getLogger('drasac.dashboard')
 
 def _categorias_del_tecnico(tecnico_id):
     return [
@@ -106,3 +108,43 @@ def obtener_estadisticas():
         },
         "tickets_recientes": [t.to_dict() for t in tickets_recientes]
     }), 200
+
+@dashboard_bp.route('/por-tienda', methods=['GET'])
+@jwt_required()
+def tickets_por_tienda():
+    """Ranking de tiendas por cantidad de tickets creados.
+    ?dias=7|14|30|90 (0 = todo el historial)."""
+    current_user_id = int(get_jwt_identity())
+    usuario = Usuario.query.get(current_user_id)
+    if not usuario:
+        return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
+    if usuario.rol not in ['admin', 'tecnico']:
+        return jsonify({"error": "No autorizado", "message": "Solo administradores y técnicos pueden ver este reporte"}), 403
+
+    try:
+        dias = int(request.args.get('dias', 30))
+    except ValueError:
+        dias = 30
+
+    query = db.session.query(
+        Usuario.tienda_area.label('tienda'),
+        Ticket.estado.label('estado'),
+        func.count(Ticket.id).label('cantidad')
+    ).join(Usuario, Ticket.usuario_id == Usuario.id)
+
+    if dias > 0:
+        query = query.filter(Ticket.created_at >= datetime.utcnow() - timedelta(days=dias))
+    query = query.filter(Usuario.tienda_area.isnot(None), Usuario.tienda_area != '')
+    filas = query.group_by(Usuario.tienda_area, Ticket.estado).all()
+
+    consolidado = {}
+    for tienda, estado, cantidad in filas:
+        d = consolidado.setdefault(tienda, {"tienda": tienda, "total": 0, "abiertos": 0, "resueltos": 0})
+        d["total"] += cantidad
+        if estado in ('cerrado', 'resuelto'):
+            d["resueltos"] += cantidad
+        else:
+            d["abiertos"] += cantidad
+
+    resultado = sorted(consolidado.values(), key=lambda x: x["total"], reverse=True)
+    return jsonify({"dias": dias, "tiendas": resultado}), 200

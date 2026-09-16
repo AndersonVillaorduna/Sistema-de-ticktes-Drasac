@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// URL de la API configurable por entorno (en producción: https://tu-dominio/api)
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -37,5 +40,10 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Convierte rutas de archivos guardadas en la BD (/api/uploads/x.png)
+// en URL absoluta del backend para usarlas en <img> o descargas
+export const fileUrl = (ruta) =>
+  ruta ? `${api.defaults.baseURL.replace(/\/api$/, '')}${ruta}` : ruta;
 
 export default api;

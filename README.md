@@ -99,3 +99,19 @@ Suite completa de pruebas de base de datos, encriptación de contraseñas, login
 python backend/test_backend.py
 ```
 *(Nota: Corre las pruebas de forma aislada utilizando una base de datos SQLite en memoria `:memory:`, sin alterar los datos persistidos de desarrollo).*
+
+---
+
+## 🔐 Despliegue seguro en producción
+
+1. **Llaves secretas obligatorias**: copia `backend/.env.example` a `backend/.env` y genera `SECRET_KEY` y `JWT_SECRET_KEY` con `python -c "import secrets; print(secrets.token_hex(32))"`. La app **se niega a arrancar** en producción (`FLASK_ENV=production`) sin ellas.
+2. **Sin debug**: `run.py` bloquea `debug=True` en producción. Ejecuta el backend con gunicorn detrás de nginx:
+   ```bash
+   pip install gunicorn
+   gunicorn -w 2 -b 127.0.0.1:5000 "app:create_app()"
+   ```
+3. **CORS**: define `CORS_ORIGINS` con el dominio de tu frontend en Vercel (sin `*`).
+4. **Base de datos**: usa MySQL/PostgreSQL vía `SQLALCHEMY_DATABASE_URI` (SQLite se reinicia en despliegues con disco efímero).
+5. **HTTPS**: sirve el backend con certificado (Let's Encrypt) y define `VITE_API_URL` en Vercel apuntando a `https://tu-dominio/api`.
+6. **Cambiar contraseñas del seed**: entra con las credenciales iniciales y usa el botón "Cambiar contraseña" del panel lateral.
+7. **Cabeceras de seguridad** (`nosniff`, `X-Frame-Options`, `Referrer-Policy`) se agregan automáticamente a todas las respuestas.

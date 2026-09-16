@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import api from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import api, { fileUrl } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import {
   BookOpen, Search, Plus, Edit2, Trash2, Loader2, AlertCircle,
-  Bot, RefreshCw, Tag, KeyRound, ListOrdered, CheckCircle2,
+  Bot, RefreshCw, Tag, KeyRound, ListOrdered, CheckCircle2, ImageIcon, X,
 } from 'lucide-react';
 
 const inputCls = 'input-glow w-full rounded-xl py-2.5 px-3.5 text-sm border text-white placeholder-slate-600 transition-all';
@@ -20,8 +20,50 @@ const ArticleModal = ({ articulo, categorias, onClose, onSaved }) => {
     palabras_clave: articulo?.palabras_clave || '',
     categoria_id: articulo?.categoria_id ?? '',
   });
+  const [imagenUrl, setImagenUrl] = useState(articulo?.imagen_url || '');
+  const [imagenSubiendo, setImagenSubiendo] = useState(false);
+  const fileRef = useRef(null);
+  const [pasos, setPasos] = useState(articulo?.pasos?.length ? articulo.pasos : []);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const subirArchivo = async (file, contexto) => {
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('contexto', contexto);
+    const res = await api.post('/uploads', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return res.data.url;
+  };
+
+  const handleImagen = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImagenSubiendo(true);
+    setError('');
+    try {
+      setImagenUrl(await subirArchivo(file, 'articulo'));
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudo subir la imagen.');
+    } finally {
+      setImagenSubiendo(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  // ── Pasos del flujo ──
+  const handleImagenPaso = async (idx, file) => {
+    if (!file) return;
+    setError('');
+    try {
+      const url = await subirArchivo(file, 'articulo');
+      setPasos((prev) => prev.map((p, i) => (i === idx ? { ...p, imagen_url: url } : p)));
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudo subir la imagen del paso.');
+    }
+  };
+
+  const agregarPaso = () => setPasos((prev) => [...prev, { texto: '', imagen_url: '' }]);
+  const quitarPaso = (idx) => setPasos((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,6 +77,8 @@ const ArticleModal = ({ articulo, categorias, onClose, onSaved }) => {
       const payload = {
         ...form,
         categoria_id: form.categoria_id === '' ? null : Number(form.categoria_id),
+        imagen_url: imagenUrl || null,
+        pasos: pasos.filter((p) => p.texto?.trim()),
       };
       if (isEdit) {
         await api.put(`/base-conocimiento/${articulo.id}`, payload);
@@ -125,6 +169,101 @@ const ArticleModal = ({ articulo, categorias, onClose, onSaved }) => {
               <KeyRound className="w-3 h-3" />
               La IA compara estas palabras con el problema descrito por el usuario.
             </p>
+          </div>
+
+          {/* Imagen del manual */}
+          <div className="space-y-1">
+            <label className="block text-slate-500 font-bold uppercase text-[9px]">
+              Imagen del manual (opcional)
+            </label>
+            {imagenUrl ? (
+              <div className="relative rounded-xl overflow-hidden border border-white/8 w-fit">
+                <img src={fileUrl(imagenUrl)} alt="Imagen del artículo" className="max-h-40" />
+                <button
+                  type="button"
+                  onClick={() => setImagenUrl('')}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-black/60 flex items-center justify-center text-white hover:bg-red-500/80 transition-colors"
+                  title="Quitar imagen"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={imagenSubiendo}
+                className="w-full border border-dashed border-white/15 rounded-xl py-4 flex flex-col items-center gap-1.5 text-slate-500 hover:text-slate-300 hover:border-blue-500/30 transition-all disabled:opacity-50"
+              >
+                {imagenSubiendo
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <ImageIcon className="w-5 h-5" />}
+                <span className="text-[11px] font-semibold">
+                  {imagenSubiendo ? 'Subiendo imagen…' : 'Haz clic para subir una imagen (png, jpg, máx. 5 MB)'}
+                </span>
+                <span className="text-[10px] text-slate-600">Se mostrará al usuario junto a la solución de la IA</span>
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={handleImagen} className="hidden" />
+          </div>
+
+          {/* Flujo de pasos (secuencia guiada) */}
+          <div className="space-y-2 rounded-xl border border-indigo-500/20 p-3" style={{ background: 'var(--panel-ai-bg)' }}>
+            <div className="flex items-center justify-between">
+              <label className="text-slate-400 font-bold uppercase text-[9px] flex items-center gap-1.5">
+                <Bot className="w-3 h-3 text-indigo-400" />
+                Flujo de pasos guiados (opcional)
+              </label>
+              <button
+                type="button"
+                onClick={agregarPaso}
+                className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Agregar paso
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-600">
+              La IA envía el paso 1 al crear el ticket; cuando la tienda responda, puedes enviarle el
+              paso 2 con su imagen, y así sucesivamente.
+            </p>
+            {pasos.map((paso, idx) => (
+              <div key={idx} className="rounded-xl border border-white/8 bg-black/20 p-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-indigo-400">PASO {idx + 1}</span>
+                  <button type="button" onClick={() => quitarPaso(idx)}
+                    className="text-slate-600 hover:text-red-400 transition-colors" title="Quitar paso">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <textarea
+                  value={paso.texto || ''}
+                  onChange={(e) => setPasos((prev) => prev.map((p, i) => (i === idx ? { ...p, texto: e.target.value } : p)))}
+                  placeholder={`Qué debe hacer el usuario en el paso ${idx + 1}…`}
+                  rows={2}
+                  className={`${inputCls} resize-y`}
+                  style={inputStyle}
+                />
+                {paso.imagen_url ? (
+                  <div className="relative w-fit">
+                    <img src={fileUrl(paso.imagen_url)} alt={`Paso ${idx + 1}`} className="rounded-lg max-h-28 border border-white/10" />
+                    <button type="button" onClick={() => setPasos((prev) => prev.map((p, i) => (i === idx ? { ...p, imagen_url: '' } : p)))}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-md bg-black/60 flex items-center justify-center text-white hover:bg-red-500/80">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 hover:text-blue-400 cursor-pointer transition-colors">
+                    <ImageIcon className="w-3 h-3" /> Agregar imagen al paso
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp"
+                      className="hidden"
+                      onChange={(e) => handleImagenPaso(idx, e.target.files?.[0])}
+                    />
+                  </label>
+                )}
+              </div>
+            ))}
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
@@ -342,7 +481,39 @@ const KnowledgeBase = () => {
                   <ListOrdered className="w-3 h-3" /> Pasos de la solución
                 </p>
                 <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{a.solucion}</p>
+                {a.imagen_url && (
+                  <a href={fileUrl(a.imagen_url)} target="_blank" rel="noreferrer" className="block mt-3">
+                    <img
+                      src={fileUrl(a.imagen_url)}
+                      alt={`Ejemplo de ${a.problema_tipo}`}
+                      className="rounded-lg border border-white/8 max-h-44 hover:opacity-90 transition-opacity"
+                    />
+                  </a>
+                )}
               </div>
+
+              {a.pasos?.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                    <Bot className="w-3 h-3" /> Flujo guiado de {a.pasos.length} paso(s)
+                  </p>
+                  {a.pasos.map((p, i) => (
+                    <div key={i} className="flex items-start gap-2.5 rounded-xl border border-white/5 bg-white/2 p-2.5">
+                      <span className="w-5 h-5 rounded-lg bg-indigo-500/15 text-indigo-400 text-[10px] font-black flex items-center justify-center shrink-0">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{p.texto}</p>
+                        {p.imagen_url && (
+                          <a href={fileUrl(p.imagen_url)} target="_blank" rel="noreferrer">
+                            <img src={fileUrl(p.imagen_url)} alt={`Paso ${i + 1}`} className="rounded-lg border border-white/8 max-h-32 mt-2 hover:opacity-90 transition-opacity" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="flex items-center gap-1.5 mt-3 flex-wrap">
                 {a.palabras_clave?.split(',').map((kw, i) => (

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.inventario import Inventario
 from app.models.usuario import Usuario
@@ -6,8 +7,8 @@ from app.schemas.schemas import InventarioSchema
 from app.services.ia_service import generar_informe_equipos
 from app import db
 from datetime import datetime, date
-
 inventario_bp = Blueprint('inventario', __name__)
+logger = logging.getLogger('drasac.inventario')
 inventario_schema = InventarioSchema()
 inventario_list_schema = InventarioSchema(many=True)
 
@@ -97,9 +98,10 @@ def crear_equipo():
             "message": "Equipo de inventario registrado con éxito",
             "equipo": nuevo_equipo.to_dict()
         }), 201
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500
 
 @inventario_bp.route('/<int:id>', methods=['GET'])
 @jwt_required()
@@ -148,9 +150,10 @@ def actualizar_equipo(id):
             "message": "Equipo actualizado con éxito",
             "equipo": equipo.to_dict()
         }), 200
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500
 
 @inventario_bp.route('/<int:id>', methods=['DELETE'])
 @jwt_required()
@@ -167,9 +170,10 @@ def eliminar_equipo(id):
         db.session.delete(equipo)
         db.session.commit()
         return jsonify({"message": "Equipo eliminado del inventario con éxito"}), 200
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500
 
 @inventario_bp.route('/informe-ia', methods=['POST'])
 @jwt_required()

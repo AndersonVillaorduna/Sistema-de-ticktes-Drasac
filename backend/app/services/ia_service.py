@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import requests
 from app.models.categoria import Categoria
 from app.models.base_conocimiento import BaseConocimiento
@@ -8,6 +9,7 @@ from app import db
 # Obtener URL y modelo de Ollama
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.1:8b')
+logger = logging.getLogger('drasac.ia')
 # Límite de hilos de CPU para Ollama (0 = sin límite). Útil en la PC de desarrollo
 # para que la generación no sature todos los núcleos mientras se usa la app.
 try:
@@ -71,7 +73,7 @@ def clasificar_y_resolver_ticket(titulo, descripcion):
                 "solucion": caso.solucion,
             })
     except Exception as e:
-        print(f"Aviso: no se pudieron cargar artículos de la base de conocimiento: {e}")
+        logger.warning("No se pudieron cargar artículos de la base de conocimiento: %s", e)
 
     articulos_texto = ""
     if articulos:
@@ -165,7 +167,7 @@ Tu respuesta debe lucir exactamente así:
                 "respuesta_sugerida": data.get('respuesta_sugerida')
             }
     except Exception as e:
-        print(f"Error al conectar con Ollama o procesar respuesta: {str(e)}")
+        logger.exception("Error al conectar con Ollama o procesar respuesta")
         return None
 
     return None
@@ -179,11 +181,12 @@ def articulo_coincide_con_texto(articulo, texto):
     return any(p in texto for p in palabras)
 
 
-def buscar_solucion_en_base_de_conocimiento(categoria_id, titulo, descripcion):
+def buscar_articulo_en_base_de_conocimiento(categoria_id, titulo, descripcion):
     """
-    Busca soluciones registradas en la base de conocimiento por palabras clave.
-    Si categoria_id es None busca en todas las categorías (la IA a veces confunde
-    la categoría pero el artículo correcto sí matchea).
+    Busca el artículo de la base de conocimiento que mejor coincida con el
+    texto del ticket (por palabras clave). Si categoria_id es None busca en
+    todas las categorías (la IA a veces confunde la categoría pero el
+    artículo correcto sí matchea). Devuelve el objeto BaseConocimiento o None.
     """
     try:
         query = BaseConocimiento.query
@@ -203,12 +206,47 @@ def buscar_solucion_en_base_de_conocimiento(categoria_id, titulo, descripcion):
                 max_palabras_coincidentes = coincidencias
                 mejor_coincidencia = caso
 
-        if mejor_coincidencia:
-            return mejor_coincidencia.solucion
+        return mejor_coincidencia
     except Exception as e:
-        print(f"Error al buscar en base de conocimiento: {str(e)}")
+        logger.exception("Error al buscar en base de conocimiento")
 
     return None
+
+
+def buscar_solucion_en_base_de_conocimiento(categoria_id, titulo, descripcion):
+    """Compatibilidad: devuelve solo el texto de la solución del mejor match."""
+    caso = buscar_articulo_en_base_de_conocimiento(categoria_id, titulo, descripcion)
+    return caso.solucion if caso else None
+
+
+def resolver_articulo_para_ticket(titulo, descripcion, texto_ticket,
+                                  categoria_id=None, articulo_id_ia=None,
+                                  es_caso_conocido_ia=False, confianza=0.0):
+    """
+    Lógica única de resolución por artículos (usada por crear_ticket e ia-preview):
+      1. Si la IA eligió un artículo, validarlo con palabras clave (los modelos
+         pequeños a veces eligen uno 'parecido' por error).
+      2. Si no pasó la validación, buscar por palabras clave en la categoría
+         detectada (solo si la IA marcó caso conocido o tiene confianza alta).
+      3. Como último recurso, buscar en TODA la base (la IA a veces confunde la
+         categoría pero el artículo correcto sí matchea).
+    Devuelve (articulo_aplicado, es_caso_conocido).
+    """
+    articulo = None
+    if articulo_id_ia:
+        articulo = BaseConocimiento.query.get(articulo_id_ia)
+        if articulo and articulo_coincide_con_texto(articulo, texto_ticket):
+            return articulo, True
+        articulo = None  # la IA se equivocó de artículo
+
+    if not articulo and categoria_id and (es_caso_conocido_ia or confianza > 0.8):
+        articulo = buscar_articulo_en_base_de_conocimiento(categoria_id, titulo, descripcion)
+    if not articulo:
+        articulo = buscar_articulo_en_base_de_conocimiento(None, titulo, descripcion)
+
+    if articulo:
+        return articulo, True
+    return None, False
 
 
 def generar_informe_equipos(equipos, solo_antiguos=True):
@@ -269,6 +307,6 @@ IMPORTANTE: NO uses tablas ni Markdown (nada de |, ni **, ni #). Solo texto plan
             texto = response.json().get('response', '').strip()
             return texto or None
     except Exception as e:
-        print(f"Error al generar informe de equipos con Ollama: {str(e)}")
+        logger.exception("Error al generar informe de equipos con Ollama")
 
     return None

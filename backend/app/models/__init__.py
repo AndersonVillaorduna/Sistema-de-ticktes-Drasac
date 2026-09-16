@@ -6,3 +6,5 @@ from app.models.ticket import Ticket
 from app.models.comentario import Comentario
 from app.models.ticket_inventario import TicketInventario
 from app.models.base_conocimiento import BaseConocimiento
+from app.models.notificacion import Notificacion
+from app.models.ticket_lectura import TicketLectura

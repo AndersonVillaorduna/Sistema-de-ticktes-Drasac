@@ -16,6 +16,10 @@ class Ticket(db.Model):
     
     clasificado_por_ia = db.Column(db.Boolean, default=False)
     respuesta_ia = db.Column(db.Text, nullable=True)
+
+    # Flujo de pasos del artículo de la base de conocimiento
+    articulo_id = db.Column(db.Integer, db.ForeignKey('base_conocimiento.id', ondelete='SET NULL'), nullable=True)
+    paso_actual = db.Column(db.Integer, default=0)  # 0 = no iniciado; N = último paso enviado
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -49,6 +53,8 @@ class Ticket(db.Model):
             'prioridad': self.prioridad,
             'clasificado_por_ia': self.clasificado_por_ia,
             'respuesta_ia': self.respuesta_ia,
+            'articulo_id': self.articulo_id,
+            'paso_actual': self.paso_actual or 0,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,

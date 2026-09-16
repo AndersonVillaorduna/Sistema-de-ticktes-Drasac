@@ -1,11 +1,32 @@
 from flask import Blueprint, request, jsonify
+import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity
+import json as _json
 from app.models.base_conocimiento import BaseConocimiento
 from app.models.categoria import Categoria
 from app.models.usuario import Usuario
 from app import db
-
 base_conocimiento_bp = Blueprint('base_conocimiento', __name__)
+logger = logging.getLogger('drasac.base_conocimiento')
+
+def _normalizar_pasos(pasos):
+    """Valida la lista de pasos [{texto, imagen_url}] y devuelve el JSON a guardar."""
+    if pasos is None:
+        return None
+    if not isinstance(pasos, list):
+        raise ValueError("pasos debe ser una lista")
+    limpios = []
+    for p in pasos:
+        if not isinstance(p, dict):
+            continue
+        texto = (p.get('texto') or '').strip()
+        if not texto:
+            continue
+        limpios.append({
+            'texto': texto,
+            'imagen_url': (p.get('imagen_url') or '').strip() or None
+        })
+    return _json.dumps(limpios, ensure_ascii=False) if limpios else None
 
 def _requiere_admin():
     current_user_id = int(get_jwt_identity())
@@ -40,19 +61,22 @@ def crear_articulo():
         if not Categoria.query.get(categoria_id):
             return jsonify({"error": "Datos inválidos", "message": "La categoría indicada no existe"}), 400
 
-    articulo = BaseConocimiento(
-        categoria_id=categoria_id,
-        problema_tipo=problema_tipo,
-        solucion=solucion,
-        palabras_clave=palabras_clave.lower()
-    )
     try:
+        articulo = BaseConocimiento(
+            categoria_id=categoria_id,
+            problema_tipo=problema_tipo,
+            solucion=solucion,
+            palabras_clave=palabras_clave.lower(),
+            imagen_url=(data.get('imagen_url') or '').strip() or None,
+            pasos=_normalizar_pasos(data.get('pasos'))
+        )
         db.session.add(articulo)
         db.session.commit()
         return jsonify({"message": "Artículo creado", "articulo": articulo.to_dict()}), 201
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500
 
 @base_conocimiento_bp.route('/<int:articulo_id>', methods=['PUT'])
 @jwt_required()
@@ -79,13 +103,21 @@ def actualizar_articulo(articulo_id):
         if categoria_id is not None and not Categoria.query.get(categoria_id):
             return jsonify({"error": "Datos inválidos", "message": "La categoría indicada no existe"}), 400
         articulo.categoria_id = categoria_id
+    if 'imagen_url' in data:
+        articulo.imagen_url = (data.get('imagen_url') or '').strip() or None
+    if 'pasos' in data:
+        try:
+            articulo.pasos = _normalizar_pasos(data.get('pasos'))
+        except ValueError:
+            return jsonify({"error": "Datos inválidos", "message": "El formato de los pasos no es válido"}), 400
 
     try:
         db.session.commit()
         return jsonify({"message": "Artículo actualizado", "articulo": articulo.to_dict()}), 200
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500
 
 @base_conocimiento_bp.route('/<int:articulo_id>', methods=['DELETE'])
 @jwt_required()
@@ -101,6 +133,7 @@ def eliminar_articulo(articulo_id):
         db.session.delete(articulo)
         db.session.commit()
         return jsonify({"message": "Artículo eliminado"}), 200
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": "Error interno", "message": str(e)}), 500
+        logger.exception("Error interno")
+        return jsonify({"error": "Error interno", "message": "Ocurrió un error interno. Intenta de nuevo."}), 500

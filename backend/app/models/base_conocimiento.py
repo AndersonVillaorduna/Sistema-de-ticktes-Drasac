@@ -8,8 +8,19 @@ class BaseConocimiento(db.Model):
     problema_tipo = db.Column(db.String(255), nullable=False)  # Ej: 'Impresora no imprime', 'Sin internet'
     solucion = db.Column(db.Text, nullable=False)
     palabras_clave = db.Column(db.String(255), nullable=False)  # Separadas por comas, ej: 'impresora,papel,toner'
+    imagen_url = db.Column(db.String(500), nullable=True)  # Imagen del manual/ejemplo visual
+    pasos = db.Column(db.Text, nullable=True)  # JSON: [{"texto": "...", "imagen_url": "..."}] flujo de pasos
 
     categoria = db.relationship('Categoria', backref='base_conocimiento')
+
+    def get_pasos(self):
+        import json as _json
+        if not self.pasos:
+            return []
+        try:
+            return _json.loads(self.pasos)
+        except (ValueError, TypeError):
+            return []
 
     def to_dict(self):
         return {
@@ -18,5 +29,7 @@ class BaseConocimiento(db.Model):
             'categoria_nombre': self.categoria.nombre if self.categoria else None,
             'problema_tipo': self.problema_tipo,
             'solucion': self.solucion,
-            'palabras_clave': self.palabras_clave
+            'palabras_clave': self.palabras_clave,
+            'imagen_url': self.imagen_url,
+            'pasos': self.get_pasos()
         }

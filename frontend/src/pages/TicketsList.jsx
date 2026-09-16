@@ -58,8 +58,14 @@ const TicketCard = ({ ticket }) => {
         <Icon className={`w-5 h-5 ${color}`} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-200 group-hover:text-blue-300 truncate transition-colors">
+        <p className="text-sm font-semibold text-slate-200 group-hover:text-blue-300 truncate transition-colors flex items-center gap-2">
           {ticket.titulo}
+          {ticket.tiene_nuevo && (
+            <span className="shrink-0 flex items-center gap-1 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              Respuesta nueva
+            </span>
+          )}
         </p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-[10px] text-slate-600">#{ticket.id}</span>
@@ -122,6 +128,21 @@ const TicketsList = () => {
   };
 
   useEffect(() => { fetchTickets(); }, [estado, prioridad]);
+
+  // Refresco silencioso cada 20s para ver respuestas nuevas sin parpadear la tabla
+  useEffect(() => {
+    if (busqueda.trim()) return; // con búsqueda activa no refrescamos
+    const t = setInterval(async () => {
+      try {
+        const params = {};
+        if (estado) params.estado = estado;
+        if (prioridad) params.prioridad = prioridad;
+        const response = await api.get('/tickets', { params });
+        setTickets(response.data);
+      } catch { /* silencioso */ }
+    }, 20000);
+    return () => clearInterval(t);
+  }, [estado, prioridad, busqueda]);
 
   const handleSearch = (e) => { e.preventDefault(); fetchTickets(); };
 
@@ -298,7 +319,15 @@ const TicketsList = () => {
                   className="group hidden md:grid md:grid-cols-12 gap-4 px-5 py-4 border-b border-white/3 hover:bg-blue-500/5 hover:border-b-blue-500/10 transition-all items-center"
                 >
                   <div className="col-span-1 text-slate-600 text-xs font-bold">#{ticket.id}</div>
-                  <div className="col-span-4 text-sm font-semibold text-slate-200 group-hover:text-blue-300 transition-colors truncate pr-4">{ticket.titulo}</div>
+                  <div className="col-span-4 text-sm font-semibold text-slate-200 group-hover:text-blue-300 transition-colors truncate pr-4 flex items-center gap-2">
+                    {ticket.titulo}
+                    {ticket.tiene_nuevo && (
+                      <span
+                        className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"
+                        title="Tiene una respuesta que aún no has revisado"
+                      />
+                    )}
+                  </div>
                   <div className="col-span-2 text-xs text-slate-500 truncate">{ticket.categoria_nombre || '—'}</div>
                   <div className="col-span-2 text-xs text-slate-500 truncate">{ticket.tecnico_nombre || 'Sin asignar'}</div>
                   <div className="col-span-1 text-xs text-slate-600">{new Date(ticket.created_at).toLocaleDateString('es-PE', { day:'2-digit', month:'2-digit' })}</div>

@@ -1,5 +1,6 @@
 import os
-from flask import Flask, jsonify
+import logging
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -9,6 +10,13 @@ from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
+
+# Logging (los errores quedan en el log del servidor, no en prints sueltos)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s'
+)
+logger = logging.getLogger('drasac')
 
 # Inicializar extensiones
 db = SQLAlchemy()
@@ -23,18 +31,44 @@ limiter = Limiter(
 
 def create_app():
     flask_app = Flask(__name__)
-    
-    # Configuración
-    flask_app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-dev-key')
-    flask_app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'default-jwt-key')
+
+    es_produccion = os.getenv('FLASK_ENV', 'development') == 'production'
+
+    # ── Llaves secretas: NUNCA usar los valores por defecto en producción ──
+    secret_key = os.getenv('SECRET_KEY', '')
+    jwt_secret_key = os.getenv('JWT_SECRET_KEY', '')
+    if es_produccion and (not secret_key or not jwt_secret_key
+                          or secret_key == 'default-dev-key'
+                          or jwt_secret_key == 'default-jwt-key'):
+        raise RuntimeError(
+            "SECRET_KEY y JWT_SECRET_KEY deben estar definidas en el .env "
+            "con valores aleatorios antes de ejecutar en producción "
+            "(genera una con: python -c \"import secrets; print(secrets.token_hex(32))\")."
+        )
+    flask_app.config['SECRET_KEY'] = secret_key or 'default-dev-key'
+    flask_app.config['JWT_SECRET_KEY'] = jwt_secret_key or 'default-jwt-key'
     flask_app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///drasac.db')
     flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
+    # Rechaza de plano cuerpos mayores a 8 MB (anti-DoS en subida de archivos)
+    flask_app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
+
     # Inicializar con app
     db.init_app(flask_app)
     jwt.init_app(flask_app)
-    cors.init_app(flask_app, resources={r"/*": {"origins": "*"}})
+
+    # ── CORS: solo orígenes autorizados (separados por coma en CORS_ORIGINS) ──
+    origins = [o.strip() for o in os.getenv('CORS_ORIGINS', '*').split(',') if o.strip()]
+    cors.init_app(flask_app, resources={r"/*": {"origins": origins}})
     limiter.init_app(flask_app)
+
+    # ── Cabeceras de seguridad en todas las respuestas ──
+    @flask_app.after_request
+    def cabeceras_seguridad(response):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+        return response
     
     # Manejadores de errores de JWT
     @jwt.unauthorized_loader
@@ -65,13 +99,17 @@ def create_app():
     from app.routes.dashboard import dashboard_bp
     from app.routes.categorias import categorias_bp
     from app.routes.base_conocimiento import base_conocimiento_bp
-    
+    from app.routes.uploads import uploads_bp
+    from app.routes.notificaciones import notificaciones_bp
+
     flask_app.register_blueprint(auth_bp, url_prefix='/api/auth')
     flask_app.register_blueprint(tickets_bp, url_prefix='/api/tickets')
     flask_app.register_blueprint(inventario_bp, url_prefix='/api/inventario')
     flask_app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     flask_app.register_blueprint(categorias_bp, url_prefix='/api/categorias')
     flask_app.register_blueprint(base_conocimiento_bp, url_prefix='/api/base-conocimiento')
+    flask_app.register_blueprint(uploads_bp, url_prefix='/api/uploads')
+    flask_app.register_blueprint(notificaciones_bp, url_prefix='/api/notificaciones')
 
     # Crear tablas en base de datos si no existen
     with flask_app.app_context():
@@ -92,11 +130,41 @@ def _ejecutar_migraciones():
     from sqlalchemy import text
     try:
         with db.engine.connect() as conn:
+            # inventario.fecha_entrega
             columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(inventario)"))]
             if columnas and 'fecha_entrega' not in columnas:
                 conn.execute(text("ALTER TABLE inventario ADD COLUMN fecha_entrega DATE"))
                 conn.commit()
                 print("Migración aplicada: columna 'fecha_entrega' agregada a 'inventario'")
+
+            # base_conocimiento.imagen_url / pasos
+            columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(base_conocimiento)"))]
+            if columnas and 'imagen_url' not in columnas:
+                conn.execute(text("ALTER TABLE base_conocimiento ADD COLUMN imagen_url VARCHAR(500)"))
+                conn.commit()
+                print("Migración aplicada: columna 'imagen_url' agregada a 'base_conocimiento'")
+            if columnas and 'pasos' not in columnas:
+                conn.execute(text("ALTER TABLE base_conocimiento ADD COLUMN pasos TEXT"))
+                conn.commit()
+                print("Migración aplicada: columna 'pasos' agregada a 'base_conocimiento'")
+
+            # comentarios_ticket.adjunto_url
+            columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(comentarios_ticket)"))]
+            if columnas and 'adjunto_url' not in columnas:
+                conn.execute(text("ALTER TABLE comentarios_ticket ADD COLUMN adjunto_url VARCHAR(500)"))
+                conn.commit()
+                print("Migración aplicada: columna 'adjunto_url' agregada a 'comentarios_ticket'")
+
+            # tickets.articulo_id / paso_actual (flujo de pasos del manual)
+            columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(tickets)"))]
+            if columnas and 'articulo_id' not in columnas:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN articulo_id INTEGER"))
+                conn.commit()
+                print("Migración aplicada: columna 'articulo_id' agregada a 'tickets'")
+            if columnas and 'paso_actual' not in columnas:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN paso_actual INTEGER DEFAULT 0"))
+                conn.commit()
+                print("Migración aplicada: columna 'paso_actual' agregada a 'tickets'")
     except Exception as e:
         # Si el motor no es SQLite u ocurre otro fallo, no bloquear el arranque
-        print(f"Aviso: no se pudo verificar migraciones de inventario: {e}")
+        print(f"Aviso: no se pudo verificar migraciones: {e}")

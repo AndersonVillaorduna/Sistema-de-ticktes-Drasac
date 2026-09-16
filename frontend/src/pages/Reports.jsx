@@ -3,8 +3,16 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import {
   BarChart3, TrendingUp, Users, AlertCircle, CheckCircle2,
-  Bot, Clock, ArrowUpRight, CalendarDays, Gauge, Flame,
+  Bot, Clock, ArrowUpRight, CalendarDays, Gauge, Flame, Store,
 } from 'lucide-react';
+
+const PERIODOS = [
+  { dias: 7,  label: 'Última semana' },
+  { dias: 14, label: 'Últimas 2 semanas' },
+  { dias: 30, label: 'Último mes' },
+  { dias: 90, label: 'Últimos 3 meses' },
+  { dias: 0,  label: 'Todo' },
+];
 
 // ── Utilidades de agregación ─────────────────────────────────────────────────
 const ESTADOS = [
@@ -134,6 +142,10 @@ const GradientBar = ({ count, total, from, to }) => (
 const Reports = () => {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Ranking de tiendas con selector de periodo
+  const [periodo, setPeriodo] = useState(30);
+  const [datosTiendas, setDatosTiendas] = useState([]);
+  const [loadingTiendas, setLoadingTiendas] = useState(true);
 
   useEffect(() => {
     api.get('/tickets')
@@ -141,6 +153,14 @@ const Reports = () => {
       .catch((err) => console.error('Error al cargar reportes', err))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    setLoadingTiendas(true);
+    api.get('/dashboard/por-tienda', { params: { dias: periodo } })
+      .then((r) => setDatosTiendas(r.data.tiendas || []))
+      .catch((err) => console.error('Error al cargar ranking de tiendas', err))
+      .finally(() => setLoadingTiendas(false));
+  }, [periodo]);
 
   const analytics = useMemo(() => {
     const total = tickets.length;
@@ -358,6 +378,81 @@ const Reports = () => {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Tickets por tienda (con selector de periodo) */}
+      <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'var(--bg-card)' }}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
+          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <Store className="w-4 h-4 text-fuchsia-400" />
+            Tickets por Tienda
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {PERIODOS.map((p) => (
+              <button
+                key={p.dias}
+                onClick={() => setPeriodo(p.dias)}
+                className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                  periodo === p.dias
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                    : 'border-white/8 bg-white/3 text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loadingTiendas ? (
+          <div className="py-8 text-center text-xs text-slate-500">Cargando ranking de tiendas…</div>
+        ) : datosTiendas.length > 0 ? (
+          <>
+            <div className="mb-5 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-fuchsia-500/15 border border-fuchsia-500/25 flex items-center justify-center text-fuchsia-400 shrink-0">
+                <Flame className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-widest">La que más tickets crea</p>
+                <p className="text-sm font-bold text-white">
+                  {datosTiendas[0].tienda}
+                  <span className="text-slate-400 font-medium"> · {datosTiendas[0].total} ticket(s) en el periodo seleccionado</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3.5">
+              {datosTiendas.map((t, i) => (
+                <div key={t.tienda} className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-slate-300 font-semibold truncate flex items-center gap-2">
+                      <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${
+                        i === 0 ? 'bg-fuchsia-500/20 text-fuchsia-300' : 'bg-white/5 text-slate-500'
+                      }`}>
+                        {i + 1}
+                      </span>
+                      {t.tienda}
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      {t.abiertos > 0 && (
+                        <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <Clock className="w-2.5 h-2.5" />{t.abiertos} activos
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 className="w-2.5 h-2.5" />{t.resueltos}
+                      </span>
+                      <span className="text-slate-400 font-bold w-6 text-right">{t.total}</span>
+                    </span>
+                  </div>
+                  <GradientBar count={t.total} total={datosTiendas[0].total} from="#c026d3" to="#e879f9" />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="text-[11px] text-slate-600">Sin tickets en el periodo seleccionado.</p>
+        )}
       </div>
     </div>
   );

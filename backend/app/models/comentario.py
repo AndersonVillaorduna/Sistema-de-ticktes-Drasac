@@ -8,6 +8,7 @@ class Comentario(db.Model):
     ticket_id = db.Column(db.Integer, db.ForeignKey('tickets.id', ondelete='CASCADE'), nullable=False, index=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=False, index=True)
     mensaje = db.Column(db.Text, nullable=False)
+    adjunto_url = db.Column(db.String(500), nullable=True)  # URL de imagen/documento subido
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relación
@@ -22,5 +23,6 @@ class Comentario(db.Model):
             'usuario_nombre': self.usuario.nombre if self.usuario else None,
             'usuario_rol': self.usuario.rol if self.usuario else None,
             'mensaje': self.mensaje,
+            'adjunto_url': self.adjunto_url,
             'created_at': self.created_at.isoformat()
         }

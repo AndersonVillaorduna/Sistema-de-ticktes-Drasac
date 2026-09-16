@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import {
-  UserCog, Loader2, AlertCircle, CheckCircle2, Wrench, Ticket,
+  UserCog, Loader2, AlertCircle, CheckCircle2, Wrench, Ticket, Plus, X,
 } from 'lucide-react';
 
 const Asignacion = () => {
@@ -12,6 +12,12 @@ const Asignacion = () => {
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(null);  // tecnico_id en guardado
   const [feedback, setFeedback] = useState(null);    // {tecnico_id, ok, mensaje}
+
+  // Gestión de categorías personalizadas
+  const [nuevaCategoria, setNuevaCategoria] = useState('');
+  const [categoriaFeedback, setCategoriaFeedback] = useState(null); // {ok, mensaje}
+  const [creandoCategoria, setCreandoCategoria] = useState(false);
+  const [eliminandoCategoria, setEliminandoCategoria] = useState(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -50,6 +56,39 @@ const Asignacion = () => {
       else set.add(categoriaId);
       return copia;
     });
+  };
+
+  const handleCrearCategoria = async (e) => {
+    e.preventDefault();
+    const nombre = nuevaCategoria.trim();
+    if (!nombre) return;
+    setCreandoCategoria(true);
+    setCategoriaFeedback(null);
+    try {
+      await api.post('/categorias', { nombre });
+      setNuevaCategoria('');
+      setCategoriaFeedback({ ok: true, mensaje: `Categoría "${nombre}" creada. La IA ya la usará para clasificar.` });
+      await fetchData();
+    } catch (err) {
+      setCategoriaFeedback({ ok: false, mensaje: err.response?.data?.message || 'Error al crear la categoría.' });
+    } finally {
+      setCreandoCategoria(false);
+    }
+  };
+
+  const handleEliminarCategoria = async (categoriaId, nombre) => {
+    if (!window.confirm(`¿Eliminar la categoría "${nombre}"? Solo se puede si no tiene tickets.`)) return;
+    setEliminandoCategoria(categoriaId);
+    setCategoriaFeedback(null);
+    try {
+      await api.delete(`/categorias/${categoriaId}`);
+      setCategoriaFeedback({ ok: true, mensaje: `Categoría "${nombre}" eliminada.` });
+      await fetchData();
+    } catch (err) {
+      setCategoriaFeedback({ ok: false, mensaje: err.response?.data?.message || 'Error al eliminar la categoría.' });
+    } finally {
+      setEliminandoCategoria(null);
+    }
   };
 
   const handleGuardar = async (tecnicoId) => {
@@ -110,6 +149,70 @@ const Asignacion = () => {
           <span>{error}</span>
         </div>
       )}
+
+      {/* Gestión de categorías */}
+      <div className="rounded-2xl border border-white/5 p-4 md:p-5" style={{ background: 'var(--bg-card)' }}>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Temas / Categorías</p>
+          <form onSubmit={handleCrearCategoria} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={nuevaCategoria}
+              onChange={(e) => setNuevaCategoria(e.target.value)}
+              placeholder="Nueva categoría (ej: Cámaras)"
+              maxLength={100}
+              className="input-glow rounded-xl py-2 px-3 text-xs border text-white placeholder-slate-600 w-52"
+              style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+            />
+            <button
+              type="submit"
+              disabled={creandoCategoria || !nuevaCategoria.trim()}
+              className="btn-glow px-3 py-2 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-40"
+            >
+              {creandoCategoria ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Crear
+            </button>
+          </form>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {categorias.map((c) => (
+            <span
+              key={c.categoria_id}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/8 bg-white/3 text-xs font-semibold text-slate-200"
+            >
+              <Wrench className="w-3 h-3 text-slate-500" />
+              {c.categoria_nombre}
+              {c.tickets_abiertos > 0 && (
+                <span className="text-[9px] text-amber-400 font-bold flex items-center gap-0.5">
+                  <Ticket className="w-3 h-3" />{c.tickets_abiertos}
+                </span>
+              )}
+              {c.tickets_abiertos === 0 && (
+                <button
+                  onClick={() => handleEliminarCategoria(c.categoria_id, c.categoria_nombre)}
+                  disabled={eliminandoCategoria === c.categoria_id}
+                  title="Eliminar categoría (solo si no tiene tickets)"
+                  className="text-slate-600 hover:text-red-400 transition-colors disabled:opacity-40"
+                >
+                  {eliminandoCategoria === c.categoria_id
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : <X className="w-3 h-3" />}
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+
+        {categoriaFeedback && (
+          <p className={`mt-3 text-[11px] flex items-center gap-1.5 ${categoriaFeedback.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {categoriaFeedback.ok
+              ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+            {categoriaFeedback.mensaje}
+          </p>
+        )}
+      </div>
 
       {/* Tarjeta por técnico */}
       <div className="space-y-4">
