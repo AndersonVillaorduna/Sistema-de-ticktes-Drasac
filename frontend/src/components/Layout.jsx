@@ -142,7 +142,7 @@ const Layout = ({ children }) => {
 
   useEffect(() => {
     fetchNotifs();
-    const t = setInterval(fetchNotifs, 10000);
+    const t = setInterval(fetchNotifs, 15000);
     return () => clearInterval(t);
   }, []);
 

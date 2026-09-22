@@ -75,15 +75,23 @@ def obtener_estadisticas():
         inventario_total = Inventario.query.count()
         tecnicos_total = Usuario.query.filter_by(rol='tecnico').count()
 
-        resoluciones_ia = alcance.filter(
-            Ticket.clasificado_por_ia == True,
-            Ticket.estado.in_(['cerrado', 'resuelto']),
-            Ticket.respuesta_ia != None
-        ).count()
+        # IA vs Humanos según QUIÉN resolvió realmente cada ticket:
+        # 'ia' = confirmado por el usuario o cierre automático del flujo;
+        # 'humano' = cerrado desde el panel por técnico/admin.
+        # Los tickets cerrados antes de este registro se conservan con el
+        # criterio anterior (tenían respuesta de la IA -> se asumen de IA).
+        cerrados = alcance.filter(Ticket.estado.in_(['cerrado', 'resuelto']))
 
-        resoluciones_humanas = alcance.filter(
-            Ticket.estado.in_(['cerrado', 'resuelto'])
-        ).count() - resoluciones_ia
+        resoluciones_ia = cerrados.filter(Ticket.resuelto_por == 'ia').count()
+        resoluciones_humanas = cerrados.filter(Ticket.resuelto_por == 'humano').count()
+
+        legacy = cerrados.filter(
+            Ticket.resuelto_por.is_(None),
+            Ticket.clasificado_por_ia == True,
+            Ticket.respuesta_ia.isnot(None)
+        ).count()
+        resoluciones_ia += legacy
+        resoluciones_humanas += cerrados.filter(Ticket.resuelto_por.is_(None)).count() - legacy
         if resoluciones_humanas < 0:
             resoluciones_humanas = 0
 

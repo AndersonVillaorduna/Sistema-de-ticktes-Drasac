@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import { exportarExcel } from '../utils/excel';
-import { Laptop, Plus, Edit2, Trash2, Search, Loader2, AlertCircle, FileDown, Bot, CheckCircle2 } from 'lucide-react';
+import { Laptop, Plus, Edit2, Trash2, Search, Loader2, AlertCircle, FileDown, Bot, CheckCircle2, ArrowUpDown } from 'lucide-react';
 
 const inputCls = 'input-glow w-full rounded-xl py-2.5 px-3.5 text-sm border text-white placeholder-slate-600 transition-all';
 const inputStyle = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' };
@@ -28,8 +28,29 @@ const VIDASESTILOS = {
   sin:    { badge: 'bg-white/5 text-slate-500 border-white/10',                 barra: '#475569' },
 };
 
+// Versiones de Windows para laptops
+const VERSIONES_WINDOWS = [
+  'Windows 11 Pro', 'Windows 11 Home', 'Windows 10 Pro', 'Windows 10 Home',
+  'Windows 8.1', 'Windows 7', 'Otra',
+];
+
+const ORDENES = [
+  { key: 'nombre',     label: 'Nombre (A-Z)' },
+  { key: 'nombre_inv', label: 'Nombre (Z-A)' },
+  { key: 'tienda',     label: 'Tienda (A-Z)' },
+  { key: 'antiguo',    label: 'Más antiguos primero' },
+  { key: 'nuevo',      label: 'Entrega más reciente' },
+];
+
+// ── Niveles de riesgo del informe IA (colores) ───────────────────────────────
+const NIVELES_INFORME = {
+  cambiar:   { borde: '#f87171', badge: 'bg-red-500/15 text-red-300 border-red-500/40',        label: 'Cambiar ya' },
+  revisar:   { borde: '#fbbf24', badge: 'bg-amber-500/15 text-amber-300 border-amber-500/40',  label: 'Próximo a cumplir 4 años' },
+  ok:        { borde: '#34d399', badge: 'bg-emerald-500/12 text-emerald-300 border-emerald-500/30', label: 'En buen estado' },
+  sin_fecha: { borde: '#64748b', badge: 'bg-white/5 text-slate-400 border-white/10',          label: 'Sin fecha' },
+};
+
 // ── Renderizado profesional del informe de la IA ─────────────────────────────
-// Convierte el texto plano en secciones ("Título:") y viñetas ("- ")
 const InformeRender = ({ texto }) => {
   const bloques = [];
   let viñetas = [];
@@ -91,11 +112,12 @@ const Inventory = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   // Filtros
   const [search, setSearch] = useState('');
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState('');
+  const [orden, setOrden] = useState('nombre');
 
   // Modales / Formulario
   const [modalOpen, setModalOpen] = useState(false);
@@ -107,15 +129,20 @@ const Inventory = () => {
   const [marca, setMarca] = useState('');
   const [modelo, setModelo] = useState('');
   const [numeroSerie, setNumeroSerie] = useState('');
+  const [imeiChip, setImeiChip] = useState('');
+  const [windowsVersion, setWindowsVersion] = useState('');
+  const [passwordEquipo, setPasswordEquipo] = useState('');
   const [ubicacionTienda, setUbicacionTienda] = useState('');
   const [estadoEquipo, setEstadoEquipo] = useState('activo');
   const [anydeskId, setAnydeskId] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const fileExcelRef = useRef(null);
 
   // Informe IA de equipos antiguos (bajo demanda)
   const [informeOpen, setInformeOpen] = useState(false);
   const [informeTexto, setInformeTexto] = useState('');
+  const [informeEquipos, setInformeEquipos] = useState([]);
   const [informeIA, setInformeIA] = useState(true);
   const [informeLoading, setInformeLoading] = useState(false);
   const [informeError, setInformeError] = useState('');
@@ -126,9 +153,11 @@ const Inventory = () => {
     setInformeLoading(true);
     setInformeError('');
     setInformeTexto('');
+    setInformeEquipos([]);
     try {
       const response = await api.post('/inventario/informe-ia');
       setInformeTexto(response.data.informe);
+      setInformeEquipos(response.data.equipos || []);
       setInformeIA(response.data.generado_por_ia);
     } catch (err) {
       console.error(err);
@@ -145,7 +174,7 @@ const Inventory = () => {
       if (search) params.search = search;
       if (tipo) params.tipo = tipo;
       if (estado) params.estado = estado;
-      
+
       const response = await api.get('/inventario', { params });
       setItems(response.data);
     } catch (err) {
@@ -160,6 +189,19 @@ const Inventory = () => {
     fetchInventory();
   }, [tipo, estado]);
 
+  // Lista ordenada según el criterio elegido (en memoria: rápido con cientos de equipos)
+  const itemsOrdenados = useMemo(() => {
+    const lista = [...items];
+    const porNombre = (a, b) => (a.nombre_equipo || '').localeCompare(b.nombre_equipo || '', 'es', { sensitivity: 'base' });
+    switch (orden) {
+      case 'nombre_inv': return lista.sort((a, b) => porNombre(b, a));
+      case 'tienda':     return lista.sort((a, b) => (a.ubicacion_tienda || '').localeCompare(b.ubicacion_tienda || '', 'es', { sensitivity: 'base' }) || porNombre(a, b));
+      case 'antiguo':    return lista.sort((a, b) => (a.fecha_entrega || '9999') < (b.fecha_entrega || '9999') ? -1 : 1);
+      case 'nuevo':      return lista.sort((a, b) => (b.fecha_entrega || '0000') < (a.fecha_entrega || '0000') ? -1 : 1);
+      default:           return lista.sort(porNombre);
+    }
+  }, [items, orden]);
+
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchInventory();
@@ -172,6 +214,9 @@ const Inventory = () => {
     setMarca('');
     setModelo('');
     setNumeroSerie('');
+    setImeiChip('');
+    setWindowsVersion('');
+    setPasswordEquipo('');
     setUbicacionTienda('');
     setEstadoEquipo('activo');
     setAnydeskId('');
@@ -180,20 +225,29 @@ const Inventory = () => {
     setModalOpen(true);
   };
 
-  const openEditModal = (item) => {
-    setIsEdit(true);
-    setSelectedId(item.id);
-    setNombreEquipo(item.nombre_equipo);
-    setTipoEquipo(item.tipo);
-    setMarca(item.marca || '');
-    setModelo(item.modelo || '');
-    setNumeroSerie(item.numero_serie);
-    setUbicacionTienda(item.ubicacion_tienda);
-    setEstadoEquipo(item.estado);
-    setAnydeskId(item.anydesk_id || '');
-    setFechaEntrega(item.fecha_entrega || '');
-    setError('');
-    setModalOpen(true);
+  const openEditModal = async (item) => {
+    // Pedimos el detalle individual: el listado no trae la contraseña (privacidad)
+    try {
+      const { data: detalle } = await api.get(`/inventario/${item.id}`);
+      setIsEdit(true);
+      setSelectedId(item.id);
+      setNombreEquipo(detalle.nombre_equipo);
+      setTipoEquipo(detalle.tipo);
+      setMarca(detalle.marca || '');
+      setModelo(detalle.modelo || '');
+      setNumeroSerie(detalle.numero_serie || '');
+      setImeiChip(detalle.imei_chip || '');
+      setWindowsVersion(detalle.windows_version || '');
+      setPasswordEquipo(detalle.password || '');
+      setUbicacionTienda(detalle.ubicacion_tienda);
+      setEstadoEquipo(detalle.estado);
+      setAnydeskId(detalle.anydesk_id || '');
+      setFechaEntrega(detalle.fecha_entrega || '');
+      setError('');
+      setModalOpen(true);
+    } catch (err) {
+      setError('No se pudo cargar el detalle del equipo.');
+    }
   };
 
   const handleTipoChange = (nuevoTipo) => {
@@ -202,25 +256,42 @@ const Inventory = () => {
     if (nuevoTipo !== 'Laptop') setAnydeskId('');
   };
 
+  const validarFormulario = () => {
+    if (!nombreEquipo.trim()) return 'El nombre del equipo es obligatorio.';
+    if (!ubicacionTienda.trim()) return 'La tienda / ubicación es obligatoria.';
+    if (tipoEquipo === 'Modem') {
+      if (!modelo?.trim()) return 'El modelo del módem es obligatorio.';
+      if (!imeiChip.trim()) return 'El IMEI del chip es obligatorio.';
+    }
+    if (tipoEquipo === 'Laptop') {
+      if (!marca?.trim()) return 'La marca de la laptop es obligatoria.';
+    }
+    return null;
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
-    if (!nombreEquipo || !numeroSerie || !ubicacionTienda) {
-      setError('Nombre del equipo, número de serie y ubicación son requeridos.');
+
+    const problema = validarFormulario();
+    if (problema) {
+      setError(problema);
       return;
     }
 
     setSubmitting(true);
     const payload = {
-      nombre_equipo: nombreEquipo,
+      nombre_equipo: nombreEquipo.trim(),
       tipo: tipoEquipo,
-      marca,
-      modelo,
-      numero_serie: numeroSerie,
-      ubicacion_tienda: ubicacionTienda,
+      marca: marca.trim() || null,
+      modelo: modelo.trim() || null,
+      numero_serie: numeroSerie.trim() || null,
+      imei_chip: tipoEquipo === 'Modem' ? imeiChip.trim() : null,
+      windows_version: tipoEquipo === 'Laptop' ? (windowsVersion || null) : null,
+      password: passwordEquipo || null,
+      ubicacion_tienda: ubicacionTienda.trim(),
       estado: estadoEquipo,
-      anydesk_id: tipoEquipo === 'Laptop' ? anydeskId : '',
+      anydesk_id: tipoEquipo === 'Laptop' ? anydeskId.trim() : '',
       fecha_entrega: fechaEntrega || null,
     };
 
@@ -251,8 +322,21 @@ const Inventory = () => {
     }
   };
 
-  const handleExportExcel = () => {
-    const filas = items.map((item) => {
+  const handleExportExcel = async () => {
+    // El listado normal no trae contraseñas (privacidad): pedimos el detalle
+    // completo solo para generar el Excel, respetando los filtros activos
+    // (tipo, estado y búsqueda) para descargar solo lo que se ve en pantalla
+    let datos = itemsOrdenados;
+    try {
+      const params = { exportar: 1 };
+      if (tipo) params.tipo = tipo;
+      if (estado) params.estado = estado;
+      if (search) params.search = search;
+      const { data } = await api.get('/inventario', { params });
+      if (Array.isArray(data)) datos = data;
+    } catch { /* si falla, exportamos lo que hay en memoria */ }
+
+    const filas = datos.map((item) => {
       const vu = vidaUtil(item.fecha_entrega);
       const nivelTexto = {
         verde: 'OK (menos de 2 años)',
@@ -263,21 +347,24 @@ const Inventory = () => {
       }[vu.nivel];
       return [
         item.nombre_equipo,
+        item.tipo,
         item.marca || '',
         item.modelo || '',
-        item.tipo,
+        item.tipo === 'Laptop' ? (item.windows_version || '') : '',
+        item.tipo === 'Modem' ? (item.imei_chip || '') : '',
+        item.tipo === 'Laptop' ? (item.anydesk_id || '') : '',
+        item.password || '',
         item.fecha_entrega || '',
         vu.anios !== null ? Number(vu.anios.toFixed(1)) : '',
         nivelTexto,
         item.ubicacion_tienda,
-        item.tipo === 'Laptop' ? (item.anydesk_id || '') : '',
         item.estado,
       ];
     });
 
     const hoy = new Date().toISOString().slice(0, 10);
     exportarExcel(
-      ['Equipo', 'Marca', 'Modelo', 'Tipo', 'Fecha de Entrega', 'Años de Uso', 'Vida Útil', 'Tienda / Ubicación', 'AnyDesk ID', 'Estado'],
+      ['Equipo', 'Tipo', 'Marca', 'Modelo', 'Windows', 'IMEI del Chip', 'AnyDesk ID', 'Contraseña', 'Fecha de Entrega', 'Años de Uso', 'Vida Útil', 'Tienda / Ubicación', 'Estado'],
       filas,
       `inventario_${hoy}.xlsx`
     );
@@ -286,7 +373,7 @@ const Inventory = () => {
   return (
     <div className="rounded-2xl border border-white/5 p-4 md:p-6 space-y-6 animate-fade-in"
       style={{ background: 'var(--bg-card)' }}>
-      
+
       {/* Cabecera */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/5 pb-4">
         <div className="flex items-center gap-3">
@@ -295,15 +382,17 @@ const Inventory = () => {
           </div>
           <div>
             <h3 className="font-bold text-white text-sm uppercase tracking-wider">Inventario de Equipos</h3>
-            <p className="text-xs text-slate-500">Administre el hardware de TI y la vida útil de cada equipo.</p>
+            <p className="text-xs text-slate-500">
+              {items.length} equipo(s) registrado(s) · administre el hardware de TI y su vida útil.
+            </p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportExcel}
             disabled={loading || items.length === 0}
-            title="Descarga los equipos con los filtros actuales"
+            title="Descarga los equipos con los filtros y el orden actuales"
             className="border border-white/8 bg-white/3 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-semibold py-2.5 px-4 rounded-xl transition-all duration-200 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <FileDown className="w-4 h-4" />
@@ -313,7 +402,7 @@ const Inventory = () => {
             <button
               onClick={handleInformeIA}
               disabled={loading || items.length === 0}
-              title="La IA analiza los equipos más antiguos del inventario"
+              title="La IA analiza los equipos más antiguos y los próximos a cumplir 4 años para su renovación"
               className="border border-blue-500/25 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs font-semibold py-2.5 px-4 rounded-xl transition-all duration-200 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Bot className="w-4 h-4" />
@@ -344,7 +433,7 @@ const Inventory = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nombre, serie o ubicación..."
+              placeholder="Buscar por nombre, modelo, marca o ubicación..."
               className={`${inputCls} py-2 pl-10 pr-4`}
               style={inputStyle}
             />
@@ -384,13 +473,30 @@ const Inventory = () => {
         </div>
       </form>
 
-      {/* Leyenda de vida útil */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-slate-500">
-        <span className="font-bold uppercase tracking-wider">Vida útil:</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" />Menos de 2 años</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-500" />2 a 3 años</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />Más de 3 años (revisar)</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Más de 4 años (cambiar)</span>
+      {/* Orden + leyenda de vida útil */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-slate-500">
+          <span className="font-bold uppercase tracking-wider">Vida útil:</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" />Menos de 2 años</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-500" />2 a 3 años</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />Más de 3 años (revisar)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Más de 4 años (cambiar)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+            <ArrowUpDown className="w-3 h-3" /> Orden:
+          </span>
+          <select
+            value={orden}
+            onChange={(e) => setOrden(e.target.value)}
+            className="rounded-lg py-1.5 px-2 text-[11px] border text-slate-300"
+            style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+          >
+            {ORDENES.map((o) => (
+              <option key={o.key} value={o.key} style={optStyle}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Tabla (scroll horizontal en pantallas angostas) */}
@@ -416,8 +522,8 @@ const Inventory = () => {
                   </div>
                 </td>
               </tr>
-            ) : items.length > 0 ? (
-              items.map((item) => {
+            ) : itemsOrdenados.length > 0 ? (
+              itemsOrdenados.map((item) => {
                 const vu = vidaUtil(item.fecha_entrega);
                 const estilos = VIDASESTILOS[vu.nivel];
                 return (
@@ -425,10 +531,20 @@ const Inventory = () => {
                     <td className="py-3.5 px-4 font-bold text-slate-200" style={{ borderLeft: `3px solid ${estilos.barra}` }}>
                       <div>
                         {item.nombre_equipo}
-                        <p className="text-[10px] text-slate-500 font-normal">{item.marca} {item.modelo}</p>
+                        {(item.marca || item.modelo) && (
+                          <p className="text-[10px] text-slate-500 font-normal">{[item.marca, item.modelo].filter(Boolean).join(' ')}</p>
+                        )}
                         {item.tipo === 'Laptop' && item.anydesk_id && (
                           <p className="text-[10px] text-slate-500 font-normal font-mono mt-0.5">
                             AnyDesk: <span className="text-slate-400">{item.anydesk_id}</span>
+                          </p>
+                        )}
+                        {item.tipo === 'Laptop' && item.windows_version && (
+                          <p className="text-[10px] text-slate-500 font-normal mt-0.5">{item.windows_version}</p>
+                        )}
+                        {item.tipo === 'Modem' && item.imei_chip && (
+                          <p className="text-[10px] text-slate-500 font-normal font-mono mt-0.5">
+                            IMEI: <span className="text-slate-400">{item.imei_chip}</span>
                           </p>
                         )}
                       </div>
@@ -526,9 +642,7 @@ const Inventory = () => {
 
             {informeLoading && (
               <div className="py-12 flex flex-col items-center gap-3 text-slate-400 text-xs">
-                <div className="relative">
-                  <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
-                </div>
+                <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
                 <p className="font-semibold text-slate-300">Analizando el inventario…</p>
                 <p className="text-[11px] text-slate-600">La IA está revisando la antigüedad de cada equipo, esto tarda unos segundos.</p>
               </div>
@@ -542,11 +656,65 @@ const Inventory = () => {
             )}
 
             {!informeLoading && !informeError && informeTexto && (
-              <div
-                className="rounded-xl border border-white/8 p-5 max-h-[55vh] overflow-y-auto"
-                style={{ background: 'rgba(255,255,255,0.02)' }}
-              >
-                <InformeRender texto={informeTexto} />
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+
+                {/* Panel de riesgo con colores */}
+                {informeEquipos.length > 0 && (
+                  <div className="space-y-3">
+                    {/* Contadores por nivel */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        ['cambiar', 'Cambiar ya'],
+                        ['revisar', 'Próximos a cumplir'],
+                        ['ok', 'En buen estado'],
+                      ].map(([k, lbl]) => {
+                        const n = NIVELES_INFORME[k];
+                        const count = informeEquipos.filter((e) => e.nivel === k).length;
+                        return (
+                          <div key={k} className={`rounded-xl border p-2.5 text-center ${n.badge}`}>
+                            <p className="text-xl font-black leading-none">{count}</p>
+                            <p className="text-[9px] font-bold uppercase tracking-wider mt-1">{lbl}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Lista de equipos con color por nivel */}
+                    <div className="rounded-xl border border-white/8 overflow-hidden">
+                      {informeEquipos.map((e, i) => {
+                        const n = NIVELES_INFORME[e.nivel] || NIVELES_INFORME.sin_fecha;
+                        return (
+                          <div
+                            key={i}
+                            className="flex items-center gap-3 px-3.5 py-2.5 border-b border-white/5 last:border-0"
+                            style={{ borderLeft: `3px solid ${n.borde}`, background: 'rgba(255,255,255,0.02)' }}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-200 truncate">{e.nombre}</p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {[e.marca, e.modelo].filter(Boolean).join(' ') || e.tipo} · {e.tienda}
+                              </p>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400 shrink-0">
+                              {e.anios !== null && e.anios !== undefined ? `${e.anios} años` : 'sin fecha'}
+                            </span>
+                            <span className={`text-[8px] font-black px-2 py-1 rounded-full border shrink-0 uppercase tracking-wide ${n.badge}`}>
+                              {n.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Análisis narrativo de la IA */}
+                <div className="rounded-xl border border-white/8 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                    <Bot className="w-3 h-3" /> Análisis de la IA
+                  </p>
+                  <InformeRender texto={informeTexto} />
+                </div>
               </div>
             )}
 
@@ -592,9 +760,13 @@ const Inventory = () => {
             )}
 
             <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
+
+              {/* ── Datos básicos (todos los tipos) ── */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="block text-slate-500 font-bold uppercase text-[9px]">Nombre del Equipo</label>
+                  <label className="block text-slate-500 font-bold uppercase text-[9px]">
+                    Nombre del {tipoEquipo === 'Modem' ? 'Modem' : tipoEquipo === 'Laptop' ? 'Laptop' : 'Equipo'}
+                  </label>
                   <input
                     type="text"
                     value={nombreEquipo}
@@ -622,45 +794,118 @@ const Inventory = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-slate-500 font-bold uppercase text-[9px]">Marca</label>
-                  <input
-                    type="text"
-                    value={marca}
-                    onChange={(e) => setMarca(e.target.value)}
-                    placeholder="Ej: Epson"
-                    className={inputCls}
-                    style={inputStyle}
-                  />
+              {/* ── MÓDEM: modelo + IMEI del chip (sin marca, sin serie) ── */}
+              {tipoEquipo === 'Modem' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">Modelo</label>
+                    <input
+                      type="text"
+                      value={modelo}
+                      onChange={(e) => setModelo(e.target.value)}
+                      placeholder="Ej: Huawei HG8245H"
+                      className={inputCls}
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">IMEI del Chip</label>
+                    <input
+                      type="text"
+                      value={imeiChip}
+                      onChange={(e) => setImeiChip(e.target.value)}
+                      placeholder="Ej: 867123050123456"
+                      className={`${inputCls} font-mono`}
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="block text-slate-500 font-bold uppercase text-[9px]">Modelo</label>
-                  <input
-                    type="text"
-                    value={modelo}
-                    onChange={(e) => setModelo(e.target.value)}
-                    placeholder="Ej: L3210"
-                    className={inputCls}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
+              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* ── LAPTOP: marca + versión de Windows (sin serie, sin modelo) ── */}
+              {tipoEquipo === 'Laptop' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">Marca</label>
+                    <input
+                      type="text"
+                      value={marca}
+                      onChange={(e) => setMarca(e.target.value)}
+                      placeholder="Ej: Lenovo"
+                      className={inputCls}
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">Versión de Windows</label>
+                    <select
+                      value={windowsVersion}
+                      onChange={(e) => setWindowsVersion(e.target.value)}
+                      className={`${inputCls} ${!windowsVersion ? 'text-slate-500' : ''}`}
+                      style={inputStyle}
+                    >
+                      <option value="" style={optStyle}>No especificado</option>
+                      {VERSIONES_WINDOWS.map((v) => (
+                        <option key={v} value={v} style={optStyle}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* ── OTROS TIPOS (PC/Impresora/Otro): marca y modelo ── */}
+              {(tipoEquipo !== 'Modem' && tipoEquipo !== 'Laptop') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">Marca</label>
+                    <input
+                      type="text"
+                      value={marca}
+                      onChange={(e) => setMarca(e.target.value)}
+                      placeholder="Ej: Epson"
+                      className={inputCls}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-slate-500 font-bold uppercase text-[9px]">Modelo</label>
+                    <input
+                      type="text"
+                      value={modelo}
+                      onChange={(e) => setModelo(e.target.value)}
+                      placeholder="Ej: L3210"
+                      className={inputCls}
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Contraseña (modem y laptop) ── */}
+              {(tipoEquipo === 'Modem' || tipoEquipo === 'Laptop') && (
                 <div className="space-y-1">
-                  <label className="block text-slate-500 font-bold uppercase text-[9px]">Número de Serie</label>
+                  <label className="block text-slate-500 font-bold uppercase text-[9px]">
+                    Contraseña {tipoEquipo === 'Modem' ? 'del Modem' : 'de la Laptop'}
+                  </label>
                   <input
                     type="text"
-                    value={numeroSerie}
-                    onChange={(e) => setNumeroSerie(e.target.value)}
-                    placeholder="Ej: EPS4433"
+                    value={passwordEquipo}
+                    onChange={(e) => setPasswordEquipo(e.target.value)}
+                    placeholder={tipoEquipo === 'Modem' ? 'Contraseña Wi-Fi o de administración' : 'Contraseña de inicio de sesión'}
                     className={inputCls}
                     style={inputStyle}
-                    required
-                    disabled={isEdit}
                   />
+                  <p className="text-[10px] text-slate-600 mt-0.5">
+                    Se guarda cifrada en la base de datos y se incluye en el Excel descargado.
+                  </p>
                 </div>
+              )}
+
+              {/* ── Tienda + Estado ── */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-slate-500 font-bold uppercase text-[9px]">Tienda / Ubicación</label>
                   <input
@@ -673,8 +918,22 @@ const Inventory = () => {
                     required
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="block text-slate-500 font-bold uppercase text-[9px]">Estado de Operatividad</label>
+                  <select
+                    value={estadoEquipo}
+                    onChange={(e) => setEstadoEquipo(e.target.value)}
+                    className={inputCls}
+                    style={inputStyle}
+                  >
+                    <option value="activo" style={optStyle}>Activo / Operativo</option>
+                    <option value="mantenimiento" style={optStyle}>En Mantenimiento</option>
+                    <option value="de_baja" style={optStyle}>De Baja</option>
+                  </select>
+                </div>
               </div>
 
+              {/* ── Fecha de entrega + AnyDesk (laptop) ── */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-slate-500 font-bold uppercase text-[9px]">Fecha de Entrega</label>
@@ -697,26 +956,29 @@ const Inventory = () => {
                       value={anydeskId}
                       onChange={(e) => setAnydeskId(e.target.value)}
                       placeholder="Ej: 123 456 789"
-                      className={inputCls}
+                      className={`${inputCls} font-mono`}
                       style={inputStyle}
                     />
                   </div>
                 )}
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-slate-500 font-bold uppercase text-[9px]">Estado de Operatividad</label>
-                <select
-                  value={estadoEquipo}
-                  onChange={(e) => setEstadoEquipo(e.target.value)}
-                  className={inputCls}
-                  style={inputStyle}
-                >
-                  <option value="activo" style={optStyle}>Activo / Operativo</option>
-                  <option value="mantenimiento" style={optStyle}>En Mantenimiento</option>
-                  <option value="de_baja" style={optStyle}>De Baja</option>
-                </select>
-              </div>
+              {/* Serie opcional solo para tipos que la usan */}
+              {(tipoEquipo !== 'Modem' && tipoEquipo !== 'Laptop') && (
+                <div className="space-y-1">
+                  <label className="block text-slate-500 font-bold uppercase text-[9px]">
+                    Número de Serie <span className="normal-case text-slate-600">(opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={numeroSerie}
+                    onChange={(e) => setNumeroSerie(e.target.value)}
+                    placeholder="Ej: EPS4433"
+                    className={inputCls}
+                    style={inputStyle}
+                  />
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button

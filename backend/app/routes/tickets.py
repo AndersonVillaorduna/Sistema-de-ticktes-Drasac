@@ -399,6 +399,11 @@ def actualizar_ticket(id):
         ticket.estado = nuevo_estado
         if nuevo_estado in ['resuelto', 'cerrado']:
             ticket.resolved_at = datetime.utcnow()
+            # Cerrado desde el panel por un humano (técnico/admin)
+            ticket.resuelto_por = 'humano'
+        else:
+            # Reabierto o devuelto a flujo: se limpia el autor de la resolución
+            ticket.resuelto_por = None
     if nueva_prioridad:
         ticket.prioridad = nueva_prioridad
     if nuevo_tecnico_id:
@@ -431,6 +436,14 @@ def agregar_comentario(id):
     # Validar permisos
     if usuario.rol == 'usuario' and ticket.usuario_id != current_user_id:
         return jsonify({"error": "No autorizado", "message": "No tiene permisos para comentar en este ticket"}), 403
+
+    # Un ticket cerrado/resuelto conserva la conversación como registro,
+    # pero ya no admite mensajes nuevos
+    if ticket.estado in ('cerrado', 'resuelto'):
+        return jsonify({
+            "error": "Ticket cerrado",
+            "message": "Este ticket ya está cerrado: la conversación quedó guardada como registro y no admite más mensajes. Si el problema reaparece, crea un ticket nuevo."
+        }), 400
 
     data = request.get_json()
     mensaje = (data.get('mensaje') or '').strip()
@@ -470,40 +483,79 @@ def agregar_comentario(id):
                 excluir_id=current_user_id
             )
 
-            # ── Flujo guiado automático ──
+            # ── Flujo guiado automático con Sí/No ──
+            # Estados de paso_actual: 0 = no iniciado · 1..N = pasos enviados ·
+            # N+10 = pregunta final enviada, esperando el Sí/No de la tienda
             articulo_flujo = BaseConocimiento.query.get(ticket.articulo_id) if ticket.articulo_id else None
             pasos_flujo = articulo_flujo.get_pasos() if articulo_flujo else []
             if pasos_flujo and (ticket.paso_actual or 0) > 0:
-                intencion = _detectar_intencion(mensaje)
-                if intencion == 'confirmacion' and (ticket.paso_actual or 0) < len(pasos_flujo):
-                    # Avanzó de paso: la IA envía el siguiente automáticamente
-                    ok, _msg = _enviar_siguiente_paso(ticket)
-                    if ok:
-                        tienda_n = usuario.tienda_area or usuario.nombre
+                intencion = detectar_intencion(mensaje)
+                n_pasos = len(pasos_flujo)
+                pregunta_final_pendiente = (ticket.paso_actual or 0) > n_pasos
+                usuario_ia = Usuario.query.filter_by(email="ia@drasac.com").first()
+                autor_ia = usuario_ia.id if usuario_ia else current_user_id
+                tienda_n = usuario.tienda_area or usuario.nombre
+
+                if intencion == 'confirmacion':
+                    if pregunta_final_pendiente:
+                        # La tienda confirmó al final: CERRAR el ticket automáticamente
+                        ticket.estado = 'cerrado'
+                        ticket.resolved_at = datetime.utcnow()
+                        ticket.resuelto_por = 'ia'  # cierre automático del flujo guiado
+                        db.session.add(Comentario(
+                            ticket_id=ticket.id,
+                            usuario_id=autor_ia,
+                            mensaje="🎉 ¡Excelente! Me alegra que el problema quedara resuelto. El ticket ha sido cerrado automáticamente. Si vuelve a ocurrir, no dudes en reportarlo."
+                        ))
                         _notificar(
                             ({ticket.tecnico_id} if ticket.tecnico_id else set()) | set(_admins_ids()),
                             ticket.id,
                             'respuesta',
-                            f"🧭 {tienda_n} completó el paso {ticket.paso_actual - 1} del ticket #{ticket.id}",
+                            f"✅ {tienda_n} confirmó que su problema quedó resuelto. Ticket #{ticket.id} cerrado automáticamente.",
                             excluir_id=current_user_id
                         )
+                    elif (ticket.paso_actual or 0) < n_pasos:
+                        # "Ya lo hice" en un paso intermedio: enviar el siguiente paso
+                        ok, _msg = _enviar_siguiente_paso(ticket)
+                        if ok:
+                            _notificar(
+                                ({ticket.tecnico_id} if ticket.tecnico_id else set()) | set(_admins_ids()),
+                                ticket.id,
+                                'respuesta',
+                                f"🧭 {tienda_n} completó el paso {ticket.paso_actual - 1} del ticket #{ticket.id}",
+                                excluir_id=current_user_id
+                            )
+                    else:
+                        # Completó el ÚLTIMO paso: la IA hace la pregunta de verificación final
+                        ticket.paso_actual = n_pasos + 10
+                        db.session.add(Comentario(
+                            ticket_id=ticket.id,
+                            usuario_id=autor_ia,
+                            mensaje=f"❓ [Pregunta Final]: ¿Terminaste todos los pasos? ¿Ya cuentas con el servicio funcionando? Responde con las opciones: si todo está bien el ticket se cerrará, y si no, un técnico te ayudará."
+                        ))
                 elif intencion == 'negacion':
-                    # El problema continúa: escalar a un técnico
-                    usuario_ia = Usuario.query.filter_by(email="ia@drasac.com").first()
-                    autor_ia = usuario_ia.id if usuario_ia else current_user_id
-                    db.session.add(Comentario(
-                        ticket_id=ticket.id,
-                        usuario_id=autor_ia,
-                        mensaje="🤖 Entendido, el problema continúa. He escalado tu ticket para revisión directa de un técnico. Te atenderemos a la brevedad."
-                    ))
-                    tienda_n = usuario.tienda_area or usuario.nombre
-                    _notificar(
-                        ({ticket.tecnico_id} if ticket.tecnico_id else set()) | set(_admins_ids()),
-                        ticket.id,
-                        'respuesta',
-                        f"⚠️ {tienda_n} reporta que el problema continúa en el ticket #{ticket.id}",
-                        excluir_id=current_user_id
-                    )
+                    # El problema continúa: escalar a un técnico (en cualquier fase)
+                    if not pregunta_final_pendiente and (ticket.paso_actual or 0) < n_pasos:
+                        # "Todavía no" en un paso intermedio: NO avanzar; esperar
+                        db.session.add(Comentario(
+                            ticket_id=ticket.id,
+                            usuario_id=autor_ia,
+                            mensaje="🤖 Está bien, tómate tu tiempo. Cuando termines el paso, respóndeme con las opciones de abajo. Si prefieres, también puedes pedir que un técnico te atienda directamente."
+                        ))
+                    else:
+                        ticket.estado = 'abierto'
+                        db.session.add(Comentario(
+                            ticket_id=ticket.id,
+                            usuario_id=autor_ia,
+                            mensaje="🤖 Entendido, el problema continúa. He escalado tu ticket para revisión directa de un técnico. Te atenderemos a la brevedad."
+                        ))
+                        _notificar(
+                            ({ticket.tecnico_id} if ticket.tecnico_id else set()) | set(_admins_ids()),
+                            ticket.id,
+                            'respuesta',
+                            f"⚠️ {tienda_n} reporta que el problema continúa en el ticket #{ticket.id}",
+                            excluir_id=current_user_id
+                        )
         elif usuario.rol in ('tecnico', 'admin'):
             _notificar(
                 {ticket.usuario_id},
@@ -543,9 +595,11 @@ def confirmar_resolucion(id):
     if confirmado:
         ticket.estado = 'cerrado'
         ticket.resolved_at = datetime.utcnow()
+        ticket.resuelto_por = 'ia'  # el usuario confirmó la solución de la IA
         mensaje_sistema = "El usuario ha confirmado que la solución propuesta resolvió el problema. Ticket cerrado."
     else:
         ticket.estado = 'abierto'
+        ticket.resuelto_por = None
         # Asignarle al técnico si aún no tiene o reasignarlo
         mensaje_sistema = "El usuario rechazó la solución de la IA. El ticket ha sido reabierto y escalado para soporte técnico humano."
 

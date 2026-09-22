@@ -2,7 +2,7 @@ import os
 import logging
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, verify_jwt_in_request, get_jwt_identity
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -23,10 +23,27 @@ db = SQLAlchemy()
 jwt = JWTManager()
 cors = CORS()
 
-# Configurar limitador de peticiones para endpoints sensibles
+def _key_func():
+    """Clave del limitador: por USUARIO autenticado (cada persona tiene su
+    propio cupo, clave para oficinas/tiendas que comparten una misma IP),
+    y por IP solo para peticiones anónimas (login, etc.)."""
+    try:
+        verify_jwt_in_request(optional=True)
+        identidad = get_jwt_identity()
+        if identidad:
+            return f"usuario-{identidad}"
+    except Exception:
+        pass
+    return get_remote_address()
+
+# Configurar limitador de peticiones para endpoints sensibles.
+# El almacenamiento es configurable: en producción con varios workers usar
+# Redis (RATELIMIT_STORAGE_URI=redis://localhost:6379/0) para que el cupo
+# sea compartido entre procesos.
 limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["5000 per day", "1000 per hour"]
+    key_func=_key_func,
+    default_limits=["200000 per day", "20000 per hour"],
+    storage_uri=os.getenv('RATELIMIT_STORAGE_URI', 'memory://'),
 )
 
 def create_app():
@@ -52,6 +69,17 @@ def create_app():
     # Rechaza de plano cuerpos mayores a 8 MB (anti-DoS en subida de archivos)
     flask_app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 
+    # ── Pool de conexiones (solo MySQL/PostgreSQL): soporta cientos de
+    #    peticiones concurrentes sin agotar conexiones ni quedar con sesiones
+    #    muertas tras reinicios del servidor de base de datos ──
+    if not flask_app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
+        flask_app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,     # valida la conexión antes de usarla
+            'pool_recycle': 300,       # recicla conexiones viejas (5 min)
+            'pool_size': 20,           # conexiones persistentes por worker
+            'max_overflow': 40,        # conexiones extra en picos
+        }
+
     # Inicializar con app
     db.init_app(flask_app)
     jwt.init_app(flask_app)
@@ -70,6 +98,23 @@ def create_app():
         response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
         return response
     
+    # ── SQLite: modo WAL + busy_timeout ──
+    # WAL permite lecturas y escrituras SIMULTÁNEAS sin "database is locked"
+    # (esencial con varias tiendas usando el sistema a la vez). El listener es
+    # global y solo aplica a conexiones sqlite.
+    from sqlalchemy import event as sa_event
+    from sqlalchemy.engine import Engine
+
+    @sa_event.listens_for(Engine, 'connect')
+    def _sqlite_pragmas(dbapi_con, _record):
+        if 'sqlite' not in dbapi_con.__class__.__module__:
+            return
+        cur = dbapi_con.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=10000")   # espera 10s si hay lock en vez de fallar
+        cur.execute("PRAGMA synchronous=NORMAL")   # buen balance velocidad/seguridad
+        cur.close()
+
     # Manejadores de errores de JWT
     @jwt.unauthorized_loader
     def unauthorized_response(callback):
@@ -165,6 +210,25 @@ def _ejecutar_migraciones():
                 conn.execute(text("ALTER TABLE tickets ADD COLUMN paso_actual INTEGER DEFAULT 0"))
                 conn.commit()
                 print("Migración aplicada: columna 'paso_actual' agregada a 'tickets'")
+            if columnas and 'resuelto_por' not in columnas:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN resuelto_por VARCHAR(20)"))
+                conn.commit()
+                print("Migración aplicada: columna 'resuelto_por' agregada a 'tickets'")
+
+            # inventario: imei_chip / windows_version / password (campos por tipo)
+            columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(inventario)"))]
+            if columnas and 'imei_chip' not in columnas:
+                conn.execute(text("ALTER TABLE inventario ADD COLUMN imei_chip VARCHAR(30)"))
+                conn.commit()
+                print("Migración aplicada: columna 'imei_chip' agregada a 'inventario'")
+            if columnas and 'windows_version' not in columnas:
+                conn.execute(text("ALTER TABLE inventario ADD COLUMN windows_version VARCHAR(50)"))
+                conn.commit()
+                print("Migración aplicada: columna 'windows_version' agregada a 'inventario'")
+            if columnas and 'password' not in columnas:
+                conn.execute(text("ALTER TABLE inventario ADD COLUMN password VARCHAR(300)"))
+                conn.commit()
+                print("Migración aplicada: columna 'password' agregada a 'inventario'")
     except Exception as e:
         # Si el motor no es SQLite u ocurre otro fallo, no bloquear el arranque
         print(f"Aviso: no se pudo verificar migraciones: {e}")

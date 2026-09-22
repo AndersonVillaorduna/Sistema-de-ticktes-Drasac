@@ -33,13 +33,19 @@ class InventarioSchema(Schema):
     tipo = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     marca = fields.Str(allow_none=True)
     modelo = fields.Str(allow_none=True)
-    numero_serie = fields.Str(required=True, validate=validate.Length(min=2, max=100))
+    # Opcional: laptops y modems nuevos no llevan serie (se autogenera si falta)
+    numero_serie = fields.Str(required=False, allow_none=True, validate=validate.Length(max=100))
     ubicacion_tienda = fields.Str(required=True, validate=validate.Length(min=2, max=100))
     estado = fields.Str(validate=validate.OneOf(['activo', 'mantenimiento', 'de_baja']))
     anydesk_id = fields.Str(allow_none=True)
     asignado_a = fields.Str(allow_none=True)
     fecha_adquisicion = fields.DateTime(allow_none=True)
     fecha_entrega = fields.Date(allow_none=True)
+    imei_chip = fields.Str(allow_none=True, validate=validate.Length(max=30))
+    windows_version = fields.Str(allow_none=True, validate=validate.Length(max=50))
+    # load_only: se acepta al guardar pero JAMÁS se devuelve en listados
+    # (la contraseña descifrada solo se entrega en el detalle GET /inventario/<id>)
+    password = fields.Str(load_only=True, allow_none=True, validate=validate.Length(max=100))
 
 class TicketSchema(Schema):
     id = fields.Int(dump_only=True)

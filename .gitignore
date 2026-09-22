@@ -25,3 +25,9 @@ dist-ssr/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Archivos subidos por los usuarios (imágenes, documentos)
+backend/uploads/
+
+# Respaldos de base de datos
+backend/backups/

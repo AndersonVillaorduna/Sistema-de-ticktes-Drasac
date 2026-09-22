@@ -24,6 +24,9 @@ class Ticket(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resolved_at = db.Column(db.DateTime, nullable=True)
+    # Quién resolvió realmente el ticket: 'ia' (confirmado por el usuario o
+    # cierre automático del flujo) | 'humano' (cerrado desde el panel técnico)
+    resuelto_por = db.Column(db.String(20), nullable=True)
 
     # Relaciones
     usuario = db.relationship('Usuario', foreign_keys=[usuario_id], backref='tickets_creados')
@@ -58,5 +61,6 @@ class Ticket(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'resuelto_por': self.resuelto_por,
             'equipos': [eq.to_dict() for eq in self.equipos]
         }

@@ -115,3 +115,38 @@ python backend/test_backend.py
 5. **HTTPS**: sirve el backend con certificado (Let's Encrypt) y define `VITE_API_URL` en Vercel apuntando a `https://tu-dominio/api`.
 6. **Cambiar contraseñas del seed**: entra con las credenciales iniciales y usa el botón "Cambiar contraseña" del panel lateral.
 7. **Cabeceras de seguridad** (`nosniff`, `X-Frame-Options`, `Referrer-Policy`) se agregan automáticamente a todas las respuestas.
+
+---
+
+## 📈 Escalado a 200+ usuarios simultáneos
+
+El sistema está preparado para muchas peticiones concurrentes. En producción:
+
+1. **Servidor WSGI multi-worker** (NO uses `python run.py` en producción):
+   ```bash
+   pip install gunicorn
+   gunicorn -c gunicorn.conf.py "app:create_app()"
+   ```
+   El archivo `gunicorn.conf.py` ya está dimensionado (workers = 2×CPU+1, 2 hilos,
+   timeout 180s para las llamadas a la IA).
+
+2. **Base de datos**: usa MySQL/PostgreSQL vía `SQLALCHEMY_DATABASE_URI`
+   (SQLite solo para desarrollo/pruebas). El backend ya configura un pool de
+   20 conexiones + 40 de overflow por worker. En SQLite, el modo WAL
+   (activado automáticamente) evita errores de bloqueo con escrituras concurrentes.
+
+3. **Rate limiting compartido**: con varios workers, instala Redis y define en
+   `.env`: `RATELIMIT_STORAGE_URI=redis://localhost:6379/0` para que el cupo de
+   peticiones sea global. Los límites se cuentan **por usuario** (no por IP),
+   así que todas las tiendas pueden compartir la misma salida a internet.
+
+4. **IA (Ollama)**: para picos de tickets simultáneos, configura en el servidor
+   `OLLAMA_NUM_PARALLEL=4` (procesa varias peticiones a la vez). Si Ollama se
+   satura, el clasificador heurístico de respaldo toma el control sin que el
+   usuario note el fallo.
+
+5. **Registro permanente**: cada mensaje del chat, ticket y notificación se
+   guarda en la base de datos al instante (nunca en memoria). Para respaldos
+   programados usa `python backend/backup_db.py` (copia segura de SQLite en
+   `backend/backups/`, conserva los últimos 60). En MySQL programa:
+   `mysqldump -u usuario -p drasac > drasac_$(date +%F).sql`

@@ -270,8 +270,10 @@ def generar_informe_equipos(equipos, solo_antiguos=True):
         )
 
     enfasis = (
-        "El informe debe PRIORIZAR los equipos con mayor antigüedad, agruparlos por nivel de "
-        "riesgo (más de 4 años: cambiar; 3-4 años: revisar) y señalar en qué tienda se concentran."
+        "El informe debe PRIORIZAR los equipos con mayor antigüedad y agruparlos por nivel de riesgo: "
+        "MÁS DE 4 AÑOS = cambiar YA; ENTRE 3 Y 4 AÑOS = próximos a cumplir la vida útil, programar su "
+        "renovación; menos de 3 años = en buen estado (menciónalos solo como resumen). "
+        "Señala en qué tiendas se concentran los equipos por reemplazar."
         if solo_antiguos else
         "El informe debe dar una visión general del parque de equipos por tienda y tipo."
     )

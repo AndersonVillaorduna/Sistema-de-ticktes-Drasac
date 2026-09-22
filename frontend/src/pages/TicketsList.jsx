@@ -129,7 +129,7 @@ const TicketsList = () => {
 
   useEffect(() => { fetchTickets(); }, [estado, prioridad]);
 
-  // Refresco silencioso cada 20s para ver respuestas nuevas sin parpadear la tabla
+  // Refresco silencioso cada 30s para ver respuestas nuevas sin parpadear la tabla
   useEffect(() => {
     if (busqueda.trim()) return; // con búsqueda activa no refrescamos
     const t = setInterval(async () => {
@@ -140,7 +140,7 @@ const TicketsList = () => {
         const response = await api.get('/tickets', { params });
         setTickets(response.data);
       } catch { /* silencioso */ }
-    }, 20000);
+    }, 30000);
     return () => clearInterval(t);
   }, [estado, prioridad, busqueda]);
 

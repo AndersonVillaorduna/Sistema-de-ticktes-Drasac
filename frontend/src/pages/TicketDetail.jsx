@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, AlertCircle, Loader2, Send, MessageSquare,
   Bot, CheckCircle2, Clock, Wrench, User as UserIcon, Zap,
-  Paperclip, X, ImageIcon, FileText, Compass,
+  Paperclip, X, ImageIcon, FileText, Compass, Lock, RotateCcw,
 } from 'lucide-react';
 
 // ¿El adjunto es imagen? (si no, se muestra como documento descargable)
@@ -181,6 +181,33 @@ const TicketDetail = () => {
 
   const esPropietario = ticket.usuario_id === user?.id;
   const puedeConfirmar = esPropietario && ticket.estado === 'resuelto por ia - pendiente';
+  // Ticket cerrado/resuelto: solo lectura (la conversación queda como registro)
+  const ticketCerrado = ['cerrado', 'resuelto'].includes(ticket.estado);
+
+  // ── Respuestas rápidas Sí/No del flujo guiado ──
+  // Aparecen cuando el ÚLTIMO mensaje del chat es un paso o la pregunta final
+  // de la IA, el ticket es propio y sigue abierto.
+  const esAutorIA = (c) =>
+    c.usuario_rol === 'sistema' || c.usuario_nombre === 'Inteligencia Artificial Drasac';
+  const comentariosFlujo = ticket.comentarios || [];
+  const ultimoComentario = comentariosFlujo[comentariosFlujo.length - 1];
+  const esMensajeFlujo = !!ultimoComentario
+    && esAutorIA(ultimoComentario)
+    && (ultimoComentario.mensaje.includes('[Paso') || ultimoComentario.mensaje.includes('[Pregunta Final]'));
+  const mostrarQuickReplies = esPropietario
+    && esMensajeFlujo
+    && articulo?.pasos?.length > 0
+    && !['cerrado', 'resuelto'].includes(ticket.estado);
+  const esPreguntaFinal = esMensajeFlujo && ultimoComentario.mensaje.includes('[Pregunta Final]');
+
+  const enviarRespuestaRapida = async (texto) => {
+    try {
+      await api.post(`/tickets/${id}/comentarios`, { mensaje: texto });
+      await fetchTicket();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error al enviar la respuesta.');
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-5 animate-fade-in">
@@ -289,6 +316,39 @@ const TicketDetail = () => {
               <div ref={chatEndRef} />
             </div>
 
+            {/* Respuestas rápidas del flujo guiado (Sí / No) */}
+            {mostrarQuickReplies && (
+              <div className="px-4 pt-4">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">
+                  {esPreguntaFinal ? '¿Tu problema quedó resuelto?' : '¿Ya completaste el paso?'}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => enviarRespuestaRapida(esPreguntaFinal ? 'Sí, quedó resuelto' : 'Ya lo hice')}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold hover:bg-emerald-500/25 transition-all"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    {esPreguntaFinal ? 'Sí, quedó resuelto' : 'Sí, ya lo hice'}
+                  </button>
+                  <button
+                    onClick={() => enviarRespuestaRapida(esPreguntaFinal ? 'No, sigue igual' : 'Todavía no')}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-bold hover:bg-red-500/20 transition-all"
+                  >
+                    <X className="w-4 h-4" />
+                    {esPreguntaFinal ? 'No, sigue igual' : 'Todavía no'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {ticketCerrado && (
+              <div className="p-4 border-t border-white/5 text-center flex items-center justify-center gap-2 text-[11px] text-slate-500">
+                <Lock className="w-3.5 h-3.5 text-slate-600" />
+                Ticket cerrado: la conversación quedó guardada como registro y ya no admite mensajes.
+              </div>
+            )}
+
+            {!ticketCerrado && (
             <form onSubmit={handleComentario} className="p-4 border-t border-white/5 space-y-2">
               {adjunto && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-500/5 border border-blue-500/20 w-fit">
@@ -346,6 +406,7 @@ const TicketDetail = () => {
                 className="hidden"
               />
             </form>
+            )}
           </div>
         </div>
 
@@ -480,7 +541,6 @@ const TicketDetail = () => {
                     <option value="en proceso" style={{ background: '#0d1428' }}>En Proceso</option>
                     <option value="resuelto por ia - pendiente" style={{ background: '#0d1428' }}>Solución IA (Pendiente)</option>
                     <option value="resuelto" style={{ background: '#0d1428' }}>Resuelto</option>
-                    <option value="cerrado" style={{ background: '#0d1428' }}>Cerrado</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -510,6 +570,31 @@ const TicketDetail = () => {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Acciones de cierre/reapertura */}
+              <div className="pt-3 mt-1 border-t border-white/5">
+                {!ticketCerrado ? (
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`¿Está seguro de cerrar el ticket #${ticket.id}? La conversación quedará guardada como registro y ya no se podrán enviar más mensajes.`)) {
+                        handlePatch('estado', 'cerrado');
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/25 text-red-300 text-xs font-bold hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Cerrar ticket definitivamente
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handlePatch('estado', 'abierto')}
+                    className="w-full py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-blue-300 text-xs font-bold hover:bg-blue-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reabrir ticket
+                  </button>
+                )}
               </div>
             </div>
           )}
