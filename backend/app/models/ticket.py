@@ -27,11 +27,15 @@ class Ticket(db.Model):
     # Quién resolvió realmente el ticket: 'ia' (confirmado por el usuario o
     # cierre automático del flujo) | 'humano' (cerrado desde el panel técnico)
     resuelto_por = db.Column(db.String(20), nullable=True)
+    # Si fue humano: el usuario exacto que lo resolvió
+    resuelto_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id', ondelete='SET NULL'), nullable=True)
 
     # Relaciones
     usuario = db.relationship('Usuario', foreign_keys=[usuario_id], backref='tickets_creados')
     categoria = db.relationship('Categoria', backref='tickets')
     tecnico = db.relationship('Usuario', foreign_keys=[tecnico_id], backref='tickets_asignados')
+    # Usuario que resolvió el ticket (si fue resuelto por un humano)
+    resolutor = db.relationship('Usuario', foreign_keys=[resuelto_por_id])
     
     comentarios = db.relationship('Comentario', back_populates='ticket', cascade='all, delete-orphan')
     
@@ -62,5 +66,7 @@ class Ticket(db.Model):
             'updated_at': self.updated_at.isoformat(),
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'resuelto_por': self.resuelto_por,
+            'resuelto_por_id': self.resuelto_por_id,
+            'resuelto_por_nombre': self.resolutor.nombre if self.resolutor else None,
             'equipos': [eq.to_dict() for eq in self.equipos]
         }

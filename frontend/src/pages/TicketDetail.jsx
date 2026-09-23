@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import api, { fileUrl } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, AlertCircle, Loader2, Send, MessageSquare,
   Bot, CheckCircle2, Clock, Wrench, User as UserIcon, Zap,
-  Paperclip, X, ImageIcon, FileText, Compass, Lock, RotateCcw,
+  Paperclip, X, ImageIcon, FileText, Compass, Lock, RotateCcw, Trash2,
 } from 'lucide-react';
 
 // ¿El adjunto es imagen? (si no, se muestra como documento descargable)
@@ -38,6 +38,7 @@ const PriorityBadge = ({ prioridad }) => {
 
 const TicketDetail = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user, isAdmin, isTecnico } = useAuth();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -141,9 +142,9 @@ const TicketDetail = () => {
     setAdjunto(file);
   };
 
-  const handlePatch = async (campo, valor) => {
+  const handlePatch = async (campo, valor, extra = {}) => {
     try {
-      await api.patch(`/tickets/${id}`, { [campo]: valor });
+      await api.patch(`/tickets/${id}`, { [campo]: valor, ...extra });
       await fetchTicket();
     } catch (err) {
       alert(err.response?.data?.message || 'Error al actualizar el ticket.');
@@ -237,6 +238,16 @@ const TicketDetail = () => {
           </span>
           {ticket.tecnico_nombre && (
             <span className="flex items-center gap-1"><Wrench className="w-3.5 h-3.5" />Técnico: {ticket.tecnico_nombre}</span>
+          )}
+          {ticketCerrado && ticket.resuelto_por === 'humano' && ticket.resuelto_por_nombre && (
+            <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5" />Resuelto por: {ticket.resuelto_por_nombre}
+            </span>
+          )}
+          {ticketCerrado && ticket.resuelto_por === 'ia' && (
+            <span className="flex items-center gap-1 text-indigo-400 font-semibold">
+              <Bot className="w-3.5 h-3.5" />Resuelto por la IA
+            </span>
           )}
         </div>
       </div>
@@ -573,19 +584,31 @@ const TicketDetail = () => {
               </div>
 
               {/* Acciones de cierre/reapertura */}
-              <div className="pt-3 mt-1 border-t border-white/5">
+              <div className="pt-3 mt-1 border-t border-white/5 space-y-2">
                 {!ticketCerrado ? (
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`¿Está seguro de cerrar el ticket #${ticket.id}? La conversación quedará guardada como registro y ya no se podrán enviar más mensajes.`)) {
-                        handlePatch('estado', 'cerrado');
-                      }
-                    }}
-                    className="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/25 text-red-300 text-xs font-bold hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    Cerrar ticket definitivamente
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`¿Marcar el ticket #${ticket.id} como RESUELTO y cerrarlo?\n\nQuedará registrado que tú (${user?.nombre}) lo resolviste, la conversación se guardará y ya no se podrán enviar más mensajes.`)) {
+                          handlePatch('estado', 'cerrado', { marcado_resuelto: true });
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold hover:bg-emerald-500/25 transition-all flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Resolver y cerrar ticket
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`¿Está seguro de cerrar el ticket #${ticket.id} SIN marcarlo como resuelto? Use esta opción solo si el problema no se solucionó.`)) {
+                          handlePatch('estado', 'cerrado', { marcado_resuelto: false });
+                        }
+                      }}
+                      className="w-full py-2 rounded-xl border border-white/8 text-slate-500 text-[11px] font-semibold hover:bg-white/5 hover:text-slate-300 transition-all"
+                    >
+                      Cerrar sin resolver (escalar el problema)
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={() => handlePatch('estado', 'abierto')}
@@ -593,6 +616,26 @@ const TicketDetail = () => {
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reabrir ticket
+                  </button>
+                )}
+
+                {/* Eliminación permanente: solo administradores */}
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`⚠️ ¿ELIMINAR PERMANENTEMENTE el ticket #${ticket.id}?\n\nSe borrará junto con toda su conversación. Esta acción no se puede deshacer y quedará registrada en la auditoría.`)) {
+                        try {
+                          await api.delete(`/tickets/${id}`);
+                          navigate('/tickets');
+                        } catch (err) {
+                          alert(err.response?.data?.message || 'Error al eliminar el ticket.');
+                        }
+                      }
+                    }}
+                    className="w-full py-2 rounded-xl text-red-400/70 text-[11px] font-semibold hover:bg-red-500/10 hover:text-red-400 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Eliminar ticket (admin)
                   </button>
                 )}
               </div>

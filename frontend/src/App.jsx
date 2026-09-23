@@ -15,6 +15,7 @@ import Reports from './pages/Reports';
 import Users from './pages/Users';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Asignacion from './pages/Asignacion';
+import Auditoria from './pages/Auditoria';
 
 // ─── Loading Spinner ──────────────────────────────────────────────────────────
 const LoadingScreen = () => (
@@ -81,6 +82,7 @@ function App() {
             <Route path="/usuarios" element={<AdminOnlyRoute><Users /></AdminOnlyRoute>} />
             <Route path="/base-conocimiento" element={<AdminOnlyRoute><KnowledgeBase /></AdminOnlyRoute>} />
             <Route path="/asignacion" element={<AdminOnlyRoute><Asignacion /></AdminOnlyRoute>} />
+            <Route path="/auditoria" element={<AdminOnlyRoute><Auditoria /></AdminOnlyRoute>} />
 
             {/* Redirección por defecto */}
             <Route path="*" element={<Navigate to="/" replace />} />

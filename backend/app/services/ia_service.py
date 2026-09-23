@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import threading
 import requests
 from app.models.categoria import Categoria
 from app.models.base_conocimiento import BaseConocimiento
@@ -10,12 +11,30 @@ from app import db
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.1:8b')
 logger = logging.getLogger('drasac.ia')
+
 # Límite de hilos de CPU para Ollama (0 = sin límite). Útil en la PC de desarrollo
 # para que la generación no sature todos los núcleos mientras se usa la app.
 try:
     OLLAMA_NUM_THREAD = int(os.getenv('OLLAMA_NUM_THREAD', '0') or 0)
 except ValueError:
     OLLAMA_NUM_THREAD = 0
+
+# ── Anti-saturación de la IA ─────────────────────────────────────────────────
+# Máximo de llamadas a Ollama EN PARALELO en todo el sistema. Si se supera,
+# la petición NO espera: cae inmediatamente al fallback (heurística / informe
+# plano). Así un pico de tráfico o un ataque nunca retiene a todos los
+# workers del servidor.
+try:
+    OLLAMA_MAX_CONCURRENTES = max(1, int(os.getenv('OLLAMA_MAX_CONCURRENTES', '2')))
+except ValueError:
+    OLLAMA_MAX_CONCURRENTES = 2
+_SEMAFORO_IA = threading.BoundedSemaphore(OLLAMA_MAX_CONCURRENTES)
+
+# Timeout de clasificación (el informe usa uno mayor por ser más largo)
+try:
+    OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '60'))
+except ValueError:
+    OLLAMA_TIMEOUT = 60
 
 def _opciones_ia(temperature=0.1):
     opts = {"temperature": temperature}
@@ -123,12 +142,17 @@ Tu respuesta debe lucir exactamente así:
         "options": _opciones_ia(0.1)
     }
 
+    # Anti-saturación: si ya hay OLLAMA_MAX_CONCURRENTES llamadas en curso,
+    # NO esperar (eso retendría workers del servidor): fallback inmediato
+    if not _SEMAFORO_IA.acquire(blocking=False):
+        logger.warning("IA saturada (%d llamadas en curso): usando fallback inmediato", OLLAMA_MAX_CONCURRENTES)
+        return None
+
     try:
-        # Petición a Ollama
         response = requests.post(
             f"{OLLAMA_API_URL}/api/generate",
             json=payload,
-            timeout=120
+            timeout=OLLAMA_TIMEOUT
         )
 
         if response.status_code == 200:
@@ -166,9 +190,11 @@ Tu respuesta debe lucir exactamente así:
                 "articulo_id": articulo_id,
                 "respuesta_sugerida": data.get('respuesta_sugerida')
             }
-    except Exception as e:
+    except Exception:
         logger.exception("Error al conectar con Ollama o procesar respuesta")
         return None
+    finally:
+        _SEMAFORO_IA.release()
 
     return None
 
@@ -299,6 +325,11 @@ IMPORTANTE: NO uses tablas ni Markdown (nada de |, ni **, ni #). Solo texto plan
         "options": _opciones_ia(0.3)
     }
 
+    # Mismo anti-saturación: sin cupo libre, informe de respaldo inmediato
+    if not _SEMAFORO_IA.acquire(blocking=False):
+        logger.warning("IA saturada: informe de respaldo sin IA")
+        return None
+
     try:
         response = requests.post(
             f"{OLLAMA_API_URL}/api/generate",
@@ -308,7 +339,9 @@ IMPORTANTE: NO uses tablas ni Markdown (nada de |, ni **, ni #). Solo texto plan
         if response.status_code == 200:
             texto = response.json().get('response', '').strip()
             return texto or None
-    except Exception as e:
+    except Exception:
         logger.exception("Error al generar informe de equipos con Ollama")
+    finally:
+        _SEMAFORO_IA.release()
 
     return None

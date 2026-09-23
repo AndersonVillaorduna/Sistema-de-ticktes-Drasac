@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import timedelta
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, verify_jwt_in_request, get_jwt_identity
@@ -68,6 +69,14 @@ def create_app():
     flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     # Rechaza de plano cuerpos mayores a 8 MB (anti-DoS en subida de archivos)
     flask_app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
+
+    # ── Duración de la sesión (por defecto 12 horas; antes 15 min de Flask,
+    #    que pateaba a todos al login constantemente) ──
+    try:
+        horas_sesion = int(os.getenv('JWT_EXPIRA_HORAS', '12'))
+    except ValueError:
+        horas_sesion = 12
+    flask_app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=horas_sesion)
 
     # ── Pool de conexiones (solo MySQL/PostgreSQL): soporta cientos de
     #    peticiones concurrentes sin agotar conexiones ni quedar con sesiones
@@ -146,6 +155,7 @@ def create_app():
     from app.routes.base_conocimiento import base_conocimiento_bp
     from app.routes.uploads import uploads_bp
     from app.routes.notificaciones import notificaciones_bp
+    from app.routes.auditoria import auditoria_bp
 
     flask_app.register_blueprint(auth_bp, url_prefix='/api/auth')
     flask_app.register_blueprint(tickets_bp, url_prefix='/api/tickets')
@@ -155,6 +165,7 @@ def create_app():
     flask_app.register_blueprint(base_conocimiento_bp, url_prefix='/api/base-conocimiento')
     flask_app.register_blueprint(uploads_bp, url_prefix='/api/uploads')
     flask_app.register_blueprint(notificaciones_bp, url_prefix='/api/notificaciones')
+    flask_app.register_blueprint(auditoria_bp, url_prefix='/api/auditoria')
 
     # Crear tablas en base de datos si no existen
     with flask_app.app_context():
@@ -214,6 +225,10 @@ def _ejecutar_migraciones():
                 conn.execute(text("ALTER TABLE tickets ADD COLUMN resuelto_por VARCHAR(20)"))
                 conn.commit()
                 print("Migración aplicada: columna 'resuelto_por' agregada a 'tickets'")
+            if columnas and 'resuelto_por_id' not in columnas:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN resuelto_por_id INTEGER"))
+                conn.commit()
+                print("Migración aplicada: columna 'resuelto_por_id' agregada a 'tickets'")
 
             # inventario: imei_chip / windows_version / password (campos por tipo)
             columnas = [fila[1] for fila in conn.execute(text("PRAGMA table_info(inventario)"))]

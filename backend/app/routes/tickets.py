@@ -8,6 +8,7 @@ from app.models.comentario import Comentario
 from app.models.base_conocimiento import BaseConocimiento
 from app.models.notificacion import Notificacion
 from app.models.ticket_lectura import TicketLectura
+from app.models.auditoria import Auditoria
 from app.models.inventario import Inventario
 from app.models.tecnico_categoria import TecnicoCategoria
 from app.services.ia_service import (
@@ -18,7 +19,7 @@ from app.services.ia_service import (
 from app.services.heuristica import clasificador_heuristico
 from app.services.reglas import detectar_intencion
 from app import db, limiter
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger('drasac.tickets')
 
@@ -107,6 +108,47 @@ def ia_preview():
         respuesta = f"Detectamos que tu problema está relacionado con **{cat_nombre}**. Se creará un ticket para que un técnico revise tu caso lo antes posible."
 
     return jsonify({"sugerencia": respuesta, "respuesta_ia": respuesta}), 200
+
+@tickets_bp.route('/exportar', methods=['GET'])
+@jwt_required()
+def exportar_tickets():
+    """Exportación de tickets para el Excel de Gestión (admin/técnico).
+    ?periodo=1|7|30|90|todos"""
+    current_user_id = int(get_jwt_identity())
+    usuario = Usuario.query.get(current_user_id)
+    if not usuario or usuario.rol not in ('admin', 'tecnico'):
+        return jsonify({"error": "No autorizado", "message": "Solo administradores y técnicos pueden exportar"}), 403
+
+    periodo = request.args.get('periodo', 'todos')
+    query = Ticket.query
+    if periodo in ('1', '7', '30', '90'):
+        query = query.filter(Ticket.created_at >= datetime.utcnow() - timedelta(days=int(periodo)))
+    tickets = query.order_by(Ticket.created_at.desc()).all()
+
+    filas = []
+    for t in tickets:
+        dias = ''
+        if t.resolved_at and t.created_at:
+            dias = round((t.resolved_at - t.created_at).total_seconds() / 86400, 1)
+        resuelto_por = ''
+        if t.resuelto_por == 'ia':
+            resuelto_por = 'IA'
+        elif t.resuelto_por == 'humano' and t.resolutor:
+            resuelto_por = t.resolutor.nombre
+        filas.append({
+            'id': t.id,
+            'titulo': t.titulo,
+            'tienda': t.usuario.tienda_area if t.usuario else '',
+            'categoria': t.categoria.nombre if t.categoria else 'Sin categoría',
+            'tecnico': t.tecnico.nombre if t.tecnico else 'Sin asignar',
+            'estado': t.estado,
+            'prioridad': t.prioridad,
+            'resuelto_por': resuelto_por,
+            'creado': t.created_at.strftime('%d/%m/%Y %H:%M') if t.created_at else '',
+            'cerrado': t.resolved_at.strftime('%d/%m/%Y %H:%M') if t.resolved_at else '',
+            'dias_resolucion': dias,
+        })
+    return jsonify(filas), 200
 
 @tickets_bp.route('', methods=['POST'])
 @jwt_required()
@@ -395,18 +437,53 @@ def actualizar_ticket(id):
     nuevo_tecnico_id = data.get('tecnico_id')
     nueva_categoria_id = data.get('categoria_id')
 
+    estado_anterior = ticket.estado
+
     if nuevo_estado:
         ticket.estado = nuevo_estado
         if nuevo_estado in ['resuelto', 'cerrado']:
             ticket.resolved_at = datetime.utcnow()
-            # Cerrado desde el panel por un humano (técnico/admin)
-            ticket.resuelto_por = 'humano'
+            # Cerrado desde el panel por un humano (técnico/admin): queda
+            # registrado QUIÉN lo resolvió y se deja constancia en el chat
+            if estado_anterior not in ('cerrado', 'resuelto'):
+                marcado_resuelto = data.get('marcado_resuelto', True)
+                ticket.resuelto_por = 'humano'
+                ticket.resuelto_por_id = current_user_id
+                if marcado_resuelto:
+                    db.session.add(Comentario(
+                        ticket_id=ticket.id,
+                        usuario_id=current_user_id,
+                        mensaje=f"🔧 [Registro]: {usuario.nombre} marcó el ticket como resuelto y lo cerró."
+                    ))
+                    Auditoria.registrar(
+                        usuario, 'ticket_resuelto',
+                        f"Resolvió y cerró el ticket #{ticket.id} ('{ticket.titulo[:60]}')", ticket_id=ticket.id
+                    )
+                else:
+                    db.session.add(Comentario(
+                        ticket_id=ticket.id,
+                        usuario_id=current_user_id,
+                        mensaje=f"🔒 [Registro]: {usuario.nombre} cerró el ticket sin resolverlo (caso escalado)."
+                    ))
+                    Auditoria.registrar(
+                        usuario, 'ticket_cerrado',
+                        f"Cerró sin resolver el ticket #{ticket.id} ('{ticket.titulo[:60]}')", ticket_id=ticket.id
+                    )
         else:
             # Reabierto o devuelto a flujo: se limpia el autor de la resolución
+            if estado_anterior in ('cerrado', 'resuelto'):
+                Auditoria.registrar(usuario, 'ticket_reabierto', f"Reabrió el ticket #{ticket.id}", ticket_id=ticket.id)
             ticket.resuelto_por = None
+            ticket.resuelto_por_id = None
     if nueva_prioridad:
         ticket.prioridad = nueva_prioridad
     if nuevo_tecnico_id:
+        nuevo_tec = Usuario.query.get(int(nuevo_tecnico_id))
+        if nuevo_tec and nuevo_tec.id != ticket.tecnico_id:
+            Auditoria.registrar(
+                usuario, 'ticket_reasignado',
+                f"Reasignó el ticket #{ticket.id} a {nuevo_tec.nombre}", ticket_id=ticket.id
+            )
         ticket.tecnico_id = int(nuevo_tecnico_id)
     if nueva_categoria_id:
         ticket.categoria_id = int(nueva_categoria_id)
@@ -596,6 +673,11 @@ def confirmar_resolucion(id):
         ticket.estado = 'cerrado'
         ticket.resolved_at = datetime.utcnow()
         ticket.resuelto_por = 'ia'  # el usuario confirmó la solución de la IA
+        ticket.resuelto_por_id = None
+        Auditoria.registrar(
+            usuario, 'ticket_resuelto_ia',
+            f"{usuario.nombre} confirmó la solución de la IA en el ticket #{ticket.id}", ticket_id=ticket.id
+        )
         mensaje_sistema = "El usuario ha confirmado que la solución propuesta resolvió el problema. Ticket cerrado."
     else:
         ticket.estado = 'abierto'
@@ -663,6 +745,12 @@ def eliminar_ticket(id):
 
     ticket = Ticket.query.get_or_404(id)
     try:
+        # El borrado se registra ANTES de eliminar (snapshot del título)
+        Auditoria.registrar(
+            usuario, 'ticket_eliminado',
+            f"Eliminó el ticket #{ticket.id} ('{ticket.titulo[:60]}') de {ticket.usuario.nombre if ticket.usuario else '?'}",
+            ticket_id=ticket.id
+        )
         db.session.delete(ticket)
         db.session.commit()
         return jsonify({"message": "Ticket eliminado correctamente."}), 200

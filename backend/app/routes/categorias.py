@@ -5,8 +5,12 @@ from app.models.categoria import Categoria
 from app.models.usuario import Usuario
 from app.models.tecnico_categoria import TecnicoCategoria
 from app.models.ticket import Ticket
+from app.models.auditoria import Auditoria
 from app import db
 from sqlalchemy import func
+
+def _admin_actual():
+    return Usuario.query.get(int(get_jwt_identity()))
 categorias_bp = Blueprint('categorias', __name__)
 logger = logging.getLogger('drasac.categorias')
 
@@ -44,6 +48,7 @@ def crear_categoria():
     categoria = Categoria(nombre=nombre)
     db.session.add(categoria)
     db.session.commit()
+    Auditoria.registrar(_admin_actual(), 'categoria_creada', f"Creó la categoría '{nombre}'")
     return jsonify({"message": f"Categoría '{nombre}' creada", "categoria": categoria.to_dict()}), 201
 
 @categorias_bp.route('/<int:categoria_id>', methods=['PUT'])
@@ -67,6 +72,7 @@ def renombrar_categoria(categoria_id):
 
     categoria.nombre = nombre
     db.session.commit()
+    Auditoria.registrar(_admin_actual(), 'categoria_renombrada', f"Renombró la categoría #{categoria_id} a '{nombre}'")
     return jsonify({"message": "Categoría actualizada", "categoria": categoria.to_dict()}), 200
 
 @categorias_bp.route('/<int:categoria_id>', methods=['DELETE'])
@@ -87,9 +93,11 @@ def eliminar_categoria(categoria_id):
         }), 400
 
     TecnicoCategoria.query.filter_by(categoria_id=categoria_id).delete()
+    nombre_eliminada = categoria.nombre
     db.session.delete(categoria)
     db.session.commit()
-    return jsonify({"message": f"Categoría '{categoria.nombre}' eliminada"}), 200
+    Auditoria.registrar(_admin_actual(), 'categoria_eliminada', f"Eliminó la categoría '{nombre_eliminada}'")
+    return jsonify({"message": f"Categoría '{nombre_eliminada}' eliminada"}), 200
 
 @categorias_bp.route('/asignaciones', methods=['GET'])
 @jwt_required()
@@ -170,6 +178,10 @@ def asignar_categorias_a_tecnico(tecnico_id):
 
     db.session.commit()
     nombres = [c.nombre for c in categorias_validas]
+    Auditoria.registrar(
+        _admin_actual(), 'asignaciones_actualizadas',
+        f"Definió que {tecnico.nombre} atiende: {', '.join(nombres) if nombres else '(ninguna)'} · {reasignados} ticket(s) reasignado(s)"
+    )
     return jsonify({
         "message": f"{tecnico.nombre} ahora atiende: {', '.join(nombres) if nombres else '(ninguna categoría)'}. {reasignados} ticket(s) sin cerrar reasignado(s).",
         "categorias": nombres,

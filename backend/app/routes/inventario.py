@@ -41,7 +41,6 @@ def verificar_rol_permitido(permitidos):
     if not user or user.rol not in permitidos:
         return False, jsonify({"error": "No autorizado", "message": f"Acceso restringido a roles: {', '.join(permitidos)}"}), 403
     return True, None, None
-
 @inventario_bp.route('', methods=['GET'])
 @jwt_required()
 def listar_inventario():
@@ -205,6 +204,11 @@ def eliminar_equipo(id):
         return jsonify({"error": "No encontrado", "message": "Equipo no encontrado"}), 404
 
     try:
+        from app.models.auditoria import Auditoria
+        Auditoria.registrar(
+            Usuario.query.get(int(get_jwt_identity())), 'equipo_eliminado',
+            f"Eliminó '{equipo.nombre_equipo}' ({equipo.tipo}) de {equipo.ubicacion_tienda}"
+        )
         db.session.delete(equipo)
         db.session.commit()
         return jsonify({"message": "Equipo eliminado del inventario con éxito"}), 200

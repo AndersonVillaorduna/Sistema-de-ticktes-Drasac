@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { exportarExcel } from '../utils/excel';
 import { useAuth } from '../context/AuthContext';
 import {
   Ticket, Search, RefreshCw, PlusCircle,
   Clock, CheckCircle2, Bot, AlertCircle,
-  ChevronRight, Filter, SlidersHorizontal,
+  ChevronRight, Filter, SlidersHorizontal, FileDown, Loader2,
 } from 'lucide-react';
+
+const optStyle = { background: '#0d1428' };
+
+const PERIODO_ETIQUETA = { '1': 'hoy', '7': 'semana', '30': 'mes', '90': '3meses', 'todos': 'todos' };
 
 // ── Status Badge ───────────────────────────────────────────────────────────────
 const StatusBadge = ({ estado }) => {
@@ -99,6 +104,38 @@ const TicketsList = () => {
   const [estado, setEstado] = useState('');
   const [prioridad, setPrioridad] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const [periodoExcel, setPeriodoExcel] = useState('30');
+  const [exportando, setExportando] = useState(false);
+
+  const handleExportTickets = async () => {
+    setExportando(true);
+    try {
+      const { data } = await api.get('/tickets/exportar', { params: { periodo: periodoExcel } });
+      const filas = data.map((t) => [
+        `#${t.id}`,
+        t.titulo,
+        t.tienda || '—',
+        t.categoria,
+        t.tecnico,
+        t.estado,
+        t.prioridad,
+        t.resuelto_por || '—',
+        t.creado,
+        t.cerrado || '—',
+        t.dias_resolucion !== '' && t.dias_resolucion !== undefined ? `${t.dias_resolucion} días` : '—',
+      ]);
+      const hoy = new Date().toISOString().slice(0, 10);
+      exportarExcel(
+        ['Ref', 'Título', 'Tienda', 'Categoría', 'Técnico Asignado', 'Estado', 'Prioridad', 'Resuelto Por', 'Fecha de Creación', 'Fecha de Cierre', 'Días para Resolver'],
+        filas,
+        `tickets_${PERIODO_ETIQUETA[periodoExcel]}_${hoy}.xlsx`
+      );
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error al generar el Excel de tickets.');
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -165,6 +202,32 @@ const TicketsList = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isTecnico && (
+            <>
+              <select
+                value={periodoExcel}
+                onChange={(e) => setPeriodoExcel(e.target.value)}
+                title="Periodo a incluir en el Excel"
+                className="rounded-xl py-2.5 px-2.5 text-[11px] border text-slate-300"
+                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
+              >
+                <option value="1" style={optStyle}>Hoy</option>
+                <option value="7" style={optStyle}>Última semana</option>
+                <option value="30" style={optStyle}>Último mes</option>
+                <option value="90" style={optStyle}>Últimos 3 meses</option>
+                <option value="todos" style={optStyle}>Todos</option>
+              </select>
+              <button
+                onClick={handleExportTickets}
+                disabled={exportando}
+                title="Descarga los tickets del periodo elegido en Excel"
+                className="border border-white/8 bg-white/3 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-semibold py-2.5 px-3 rounded-xl transition-all duration-200 flex items-center gap-2 disabled:opacity-40"
+              >
+                {exportando ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                <span className="hidden lg:inline">Excel</span>
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`p-2.5 rounded-xl border text-sm font-medium flex items-center gap-2 transition-all duration-200 ${

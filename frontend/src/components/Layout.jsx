@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Compass,
   KeyRound,
+  ScrollText,
 } from 'lucide-react';
 
 const ICONO_NOTIF = {
@@ -182,6 +183,7 @@ const Layout = ({ children }) => {
     { path: '/usuarios',      label: 'Usuarios',           icon: UsersIcon,        desc: 'Cuentas registradas' },
     { path: '/base-conocimiento', label: 'Artículos IA',   icon: BookOpen,         desc: 'Casos que resuelve la IA' },
     { path: '/asignacion',    label: 'Asignación',         icon: UserCog,          desc: 'Técnico por categoría' },
+    { path: '/auditoria',     label: 'Auditoría',          icon: ScrollText,       desc: 'Registro de acciones' },
     { path: '/reportes',      label: 'Reportes',           icon: BarChart3,        desc: 'Métricas y analítica' },
   ];
 
@@ -214,6 +216,7 @@ const Layout = ({ children }) => {
     '/usuarios': 'Gestión de Usuarios',
     '/base-conocimiento': 'Artículos de la IA',
     '/asignacion': 'Asignación de Técnicos',
+    '/auditoria': 'Auditoría de Acciones',
     '/reportes': 'Reportes y Analítica',
   }[location.pathname] || 'Detalle de Ticket';
 

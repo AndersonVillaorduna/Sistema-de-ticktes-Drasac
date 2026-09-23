@@ -23,6 +23,13 @@ CARPETA_BACKUPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'back
 CONSERVAR_ULTIMOS = 60  # respaldos a retener
 
 
+def limpiar_uploads():
+    """Borra adjuntos antiguos según UPLOAD_RETENTION_DAYS (evita llenar el disco)."""
+    from app.routes.uploads import limpiar_antiguos
+    eliminados = limpiar_antiguos()
+    print(f"Limpieza de adjuntos antiguos: {eliminados} archivo(s) eliminado(s)")
+
+
 def respaldar_sqlite(ruta_db):
     os.makedirs(CARPETA_BACKUPS, exist_ok=True)
     nombre = f"drasac_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
@@ -69,3 +76,4 @@ if __name__ == '__main__':
     borrados = limpiar_antiguos()
     tamanio = os.path.getsize(destino) / 1024
     print(f"Respaldo creado: {destino} ({tamanio:.0f} KB) · antiguos eliminados: {borrados}")
+    limpiar_uploads()

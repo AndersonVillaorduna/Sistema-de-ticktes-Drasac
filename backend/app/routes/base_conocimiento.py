@@ -130,6 +130,11 @@ def eliminar_articulo(articulo_id):
         return jsonify({"error": "No encontrado", "message": "El artículo no existe"}), 404
 
     try:
+        from app.models.auditoria import Auditoria
+        Auditoria.registrar(
+            Usuario.query.get(int(get_jwt_identity())), 'articulo_eliminado',
+            f"Eliminó el artículo '{articulo.problema_tipo[:60]}'"
+        )
         db.session.delete(articulo)
         db.session.commit()
         return jsonify({"message": "Artículo eliminado"}), 200

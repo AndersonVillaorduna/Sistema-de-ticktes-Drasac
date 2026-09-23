@@ -92,14 +92,17 @@ class DrasacBackendTestCase(unittest.TestCase):
         self.assertEqual(data["usuario"]["rol"], "usuario")
 
     def test_creacion_ticket_fallback(self):
-        """Probar que al crear un ticket sin Ollama activo, el sistema use el fallback heurístico."""
+        """Con la IA no disponible (simulado), el sistema usa el fallback heurístico."""
         token = self.get_jwt_token("usuario@test.com", "userpass")
-        
-        response = self.client.post('/api/tickets', json={
-            "titulo": "No hay señal de wifi en tienda",
-            "descripcion": "El modem parece apagado y no da red."
-        }, headers={"Authorization": f"Bearer {token}"})
-        
+
+        # Simulamos Ollama caído para que la prueba no dependa del entorno
+        from unittest.mock import patch
+        with patch('app.routes.tickets.clasificar_y_resolver_ticket', return_value=None):
+            response = self.client.post('/api/tickets', json={
+                "titulo": "No hay señal de wifi en tienda",
+                "descripcion": "El modem parece apagado y no da red."
+            }, headers={"Authorization": f"Bearer {token}"})
+
         self.assertEqual(response.status_code, 201)
         data = json.loads(response.data)
         self.assertEqual(data["ticket"]["categoria_nombre"], "Red/Módem")

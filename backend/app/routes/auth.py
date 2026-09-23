@@ -18,6 +18,9 @@ registro_schema = UsuarioSchema()
 # fuerza bruta dirigida. Los ataques distribuidos los frena el rate limit por IP.
 _MAX_INTENTOS = 5
 _BLOQUEO_SEGUNDOS = 300  # 5 minutos
+# Límite de memoria: miles de correos falsos no pueden crecer el diccionario
+# indefinidamente (anti-DoS contra la RAM del servidor)
+_MAX_REGISTROS = 10000
 _intentos_fallidos = {}
 _lock = threading.Lock()
 
@@ -33,6 +36,13 @@ def _cuenta_bloqueada(email):
 
 def _registrar_fallo(email):
     with _lock:
+        # Purga de entradas ya expiradas si el diccionario creció demasiado
+        if len(_intentos_fallidos) > _MAX_REGISTROS:
+            ahora = time.time()
+            for k in [k for k, v in _intentos_fallidos.items() if v[1] < ahora]:
+                del _intentos_fallidos[k]
+            while len(_intentos_fallidos) > _MAX_REGISTROS:
+                _intentos_fallidos.pop(next(iter(_intentos_fallidos)))
         intentos, _ = _intentos_fallidos.get(email, [0, 0])
         _intentos_fallidos[email] = [intentos + 1, time.time() + _BLOQUEO_SEGUNDOS]
 
@@ -135,6 +145,12 @@ def register():
 
     try:
         db.session.add(nuevo_usuario)
+        db.session.commit()
+        from app.models.auditoria import Auditoria
+        Auditoria.registrar(
+            current_user, 'usuario_creado',
+            f"Creó el usuario '{nuevo_usuario.nombre}' ({nuevo_usuario.rol}) con el correo {nuevo_usuario.email}"
+        )
         db.session.commit()
         return jsonify({
             "message": "Usuario registrado exitosamente",
