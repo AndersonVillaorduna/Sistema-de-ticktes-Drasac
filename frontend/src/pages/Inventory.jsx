@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
@@ -115,6 +115,8 @@ const Inventory = () => {
 
   // Filtros
   const [search, setSearch] = useState('');
+  const searchRef = useRef('');
+  searchRef.current = search;
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState('');
   const [orden, setOrden] = useState('nombre');
@@ -137,7 +139,6 @@ const Inventory = () => {
   const [anydeskId, setAnydeskId] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const fileExcelRef = useRef(null);
 
   // Informe IA de equipos antiguos (bajo demanda)
   const [informeOpen, setInformeOpen] = useState(false);
@@ -155,7 +156,7 @@ const Inventory = () => {
     setInformeTexto('');
     setInformeEquipos([]);
     try {
-      const response = await api.post('/inventario/informe-ia');
+      const response = await api.post('/inventario/informe-ia', {}, { timeout: 145000 });
       setInformeTexto(response.data.informe);
       setInformeEquipos(response.data.equipos || []);
       setInformeIA(response.data.generado_por_ia);
@@ -167,11 +168,11 @@ const Inventory = () => {
     }
   };
 
-  const fetchInventory = async () => {
+  const fetchInventory = useCallback(async (query = searchRef.current) => {
     setLoading(true);
     try {
       const params = {};
-      if (search) params.search = search;
+      if (query) params.search = query;
       if (tipo) params.tipo = tipo;
       if (estado) params.estado = estado;
 
@@ -183,11 +184,11 @@ const Inventory = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tipo, estado]);
 
   useEffect(() => {
     fetchInventory();
-  }, [tipo, estado]);
+  }, [fetchInventory]);
 
   // Lista ordenada según el criterio elegido (en memoria: rápido con cientos de equipos)
   const itemsOrdenados = useMemo(() => {
@@ -204,7 +205,7 @@ const Inventory = () => {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchInventory();
+    fetchInventory(search);
   };
 
   const openAddModal = () => {
@@ -245,7 +246,7 @@ const Inventory = () => {
       setFechaEntrega(detalle.fecha_entrega || '');
       setError('');
       setModalOpen(true);
-    } catch (err) {
+    } catch {
       setError('No se pudo cargar el detalle del equipo.');
     }
   };
@@ -334,7 +335,10 @@ const Inventory = () => {
       if (search) params.search = search;
       const { data } = await api.get('/inventario', { params });
       if (Array.isArray(data)) datos = data;
-    } catch { /* si falla, exportamos lo que hay en memoria */ }
+    } catch {
+      alert('No se pudo exportar el inventario. Intenta nuevamente.');
+      return;
+    }
 
     const filas = datos.map((item) => {
       const vu = vidaUtil(item.fecha_entrega);

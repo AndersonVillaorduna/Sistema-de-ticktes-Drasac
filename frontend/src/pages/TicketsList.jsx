@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { exportarExcel } from '../utils/excel';
@@ -104,6 +104,8 @@ const TicketsList = () => {
   const [estado, setEstado] = useState('');
   const [prioridad, setPrioridad] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const searchRef = useRef('');
+  searchRef.current = busqueda;
   const [periodoExcel, setPeriodoExcel] = useState('30');
   const [exportando, setExportando] = useState(false);
 
@@ -137,7 +139,7 @@ const TicketsList = () => {
     }
   };
 
-  const fetchTickets = async () => {
+  const fetchTickets = useCallback(async (query = searchRef.current) => {
     setLoading(true);
     try {
       const params = {};
@@ -147,8 +149,8 @@ const TicketsList = () => {
       const response = await api.get('/tickets', { params });
       let data = response.data;
 
-      if (busqueda.trim()) {
-        const q = busqueda.toLowerCase();
+      if (query.trim()) {
+        const q = query.toLowerCase();
         data = data.filter((t) =>
           t.titulo.toLowerCase().includes(q) ||
           t.descripcion?.toLowerCase().includes(q) ||
@@ -162,9 +164,9 @@ const TicketsList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [estado, prioridad]);
 
-  useEffect(() => { fetchTickets(); }, [estado, prioridad]);
+  useEffect(() => { fetchTickets(); }, [fetchTickets]);
 
   // Refresco silencioso cada 30s para ver respuestas nuevas sin parpadear la tabla
   useEffect(() => {
@@ -181,7 +183,7 @@ const TicketsList = () => {
     return () => clearInterval(t);
   }, [estado, prioridad, busqueda]);
 
-  const handleSearch = (e) => { e.preventDefault(); fetchTickets(); };
+  const handleSearch = (e) => { e.preventDefault(); fetchTickets(busqueda); };
 
   const countByEstado = (est) => tickets.filter((t) => t.estado === est).length;
 

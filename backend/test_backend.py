@@ -1,7 +1,7 @@
 import os
 # Configurar base de datos en memoria para pruebas antes de que se cree el engine de SQLAlchemy
 os.environ['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-os.environ['JWT_SECRET_KEY'] = 'test-secret'
+os.environ['JWT_SECRET_KEY'] = 'test-secret-' * 6
 
 import unittest
 import json
@@ -15,7 +15,7 @@ from app.services.heuristica import clasificador_heuristico
 class DrasacBackendTestCase(unittest.TestCase):
     
     def setUp(self):
-        self.app = create_app()
+        self.app = create_app({'TESTING': True, 'RATELIMIT_ENABLED': False, 'CORS_ORIGINS': 'http://localhost:5173'})
         self.app.config['TESTING'] = True
         self.client = self.app.test_client()
         

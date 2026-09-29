@@ -1,5 +1,7 @@
 # DRASAC 2026 - Sistema de Tickets de Soporte TI con IA e Inventario
 
+Consulta también [las correcciones y la guía de despliegue](SEGURIDAD_Y_DESPLIEGUE.md).
+
 Este proyecto es un sistema de gestión y resolución automatizada de incidencias de TI para la empresa **DRASAC**, que integra Inteligencia Artificial local para clasificar incidentes, sugerir soluciones para problemas conocidos y auto-asignar técnicos de acuerdo con la categoría. Además, cuenta con un módulo de control de inventario de equipos tecnológicos.
 
 ---
@@ -14,7 +16,7 @@ Este proyecto es un sistema de gestión y resolución automatizada de incidencia
 
 ## 🔒 Buenas Prácticas de Seguridad y Diseño
 1. **Contraseñas Seguras:** Encriptadas en la base de datos con hash utilizando `bcrypt` y salts únicos.
-2. **Acceso Seguro (JWT):** Todas las rutas de tickets, inventario y estadísticas exigen token Bearer JWT válido.
+2. **Acceso Seguro (JWT):** Las rutas requieren una sesión válida. El navegador usa cookies HttpOnly y CSRF; los clientes API pueden usar Bearer JWT.
 3. **Control de Roles:** Decoradores de roles en backend y protección de rutas en frontend (`admin`, `tecnico`, `usuario`).
 4. **Prevención de Inyección SQL:** Uso obligatorio de SQLAlchemy ORM, evitando consultas SQL en texto plano.
 5. **Rate Limiting:** Límites de solicitudes por IP para evitar ataques de fuerza bruta en inicio de sesión.
@@ -47,9 +49,10 @@ backend\venv\Scripts\Activate.ps1
 backend\venv\Scripts\activate.bat
 
 # Instalar dependencias
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-lock.txt
 
-# Poblar base de datos inicial (seed)
+# Antes de iniciar: crear backend/.env desde backend/.env.example y generar sus llaves.
+# Poblar datos de demostración SOLO en desarrollo (seed)
 python backend/seed.py
 
 # Iniciar servidor backend
@@ -65,7 +68,7 @@ Abra otra terminal en la raíz del proyecto:
 cd frontend
 
 # Instalar dependencias npm
-npm install
+npm ci
 
 # Iniciar servidor de desarrollo frontend
 npm run dev
@@ -93,10 +96,10 @@ Valida que el servicio Ollama esté activo y retorne las clasificaciones en el f
 python backend/test_ai.py
 ```
 
-### 2. Pruebas Unitarias del Backend (pytest)
+### 2. Pruebas automatizadas del backend (unittest)
 Suite completa de pruebas de base de datos, encriptación de contraseñas, login JWT y tolerancia a fallas:
 ```bash
-python backend/test_backend.py
+python -m unittest discover -s backend -p "test_*.py"
 ```
 *(Nota: Corre las pruebas de forma aislada utilizando una base de datos SQLite en memoria `:memory:`, sin alterar los datos persistidos de desarrollo).*
 

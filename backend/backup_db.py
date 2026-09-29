@@ -1,79 +1,113 @@
-"""Respaldo de la base de datos para conservar SIEMPRE el registro de
-conversaciones, tickets e inventario.
-
-- SQLite: copia segura del archivo .db (usa el backup API de SQLite para no
-  copiar un archivo a medio escribir).
-- MySQL/PostgreSQL: se recomienda mysqldump/pg_dump programado (ver README).
-
-Uso manual:
-    python backend/backup_db.py
-
-Programar (Windows Task Scheduler o cron del VPS, ej. cada 6 horas):
-    cron: 0 */6 * * * cd /ruta/backend && ./venv/bin/python backup_db.py
-"""
+from contextlib import closing
+"""Consistent database + attachment snapshots; never include plaintext keys."""
+import json
 import os
+import shutil
 import sqlite3
-import sys
-from datetime import datetime
+import subprocess
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from app import db
+from app.locks import shared_lock
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from app import create_app  # noqa: E402
-
-CARPETA_BACKUPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
-CONSERVAR_ULTIMOS = 60  # respaldos a retener
-
-
-def limpiar_uploads():
-    """Borra adjuntos antiguos según UPLOAD_RETENTION_DAYS (evita llenar el disco)."""
-    from app.routes.uploads import limpiar_antiguos
-    eliminados = limpiar_antiguos()
-    print(f"Limpieza de adjuntos antiguos: {eliminados} archivo(s) eliminado(s)")
+CARPETA_BACKUPS = str(Path(__file__).resolve().parent / 'backups')
+CONSERVAR_ULTIMOS = 60
 
 
-def respaldar_sqlite(ruta_db):
-    os.makedirs(CARPETA_BACKUPS, exist_ok=True)
-    nombre = f"drasac_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-    destino = os.path.join(CARPETA_BACKUPS, nombre)
-
-    origen = sqlite3.connect(ruta_db)
-    copia = sqlite3.connect(destino)
-    with copia:
-        origen.backup(copia)  # copia consistente aunque haya escrituras en curso
-    copia.close()
-    origen.close()
-    return destino
+def respaldar_sqlite(ruta_db, destination=None):
+    directory = Path(destination).parent if destination else Path(CARPETA_BACKUPS)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = Path(destination) if destination else directory / (datetime.now(timezone.utc).strftime('drasac_%Y%m%d_%H%M%S_%f') + '.db')
+    source_uri = Path(ruta_db).resolve().as_uri() + '?mode=ro'
+    with closing(sqlite3.connect(source_uri, uri=True)) as source, closing(sqlite3.connect(path)) as target:
+        source.backup(target)
+        if target.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            raise RuntimeError('El respaldo no pasó la verificación de integridad')
+    return str(path)
 
 
-def limpiar_antiguos():
-    """Deja solo los últimos CONSERVAR_ULTIMOS respaldos."""
-    archivos = sorted(
-        f for f in os.listdir(CARPETA_BACKUPS) if f.endswith('.db')
-    )
-    for viejo in archivos[:-CONSERVAR_ULTIMOS]:
-        os.remove(os.path.join(CARPETA_BACKUPS, viejo))
-    return len(archivos) - min(len(archivos), CONSERVAR_ULTIMOS)
+def limpiar_antiguos(directory=None, keep=CONSERVAR_ULTIMOS):
+    root = Path(directory or CARPETA_BACKUPS).resolve()
+    if keep < 1:
+        raise ValueError('Debe conservarse al menos un respaldo')
+    files = sorted(p for p in root.glob('drasac_*') if p.is_file() and not p.is_symlink() and p.suffix in ('.db', '.zip'))
+    for path in files[:-keep]:
+        if path.resolve().parent != root:
+            raise RuntimeError('Ruta de respaldo fuera de la carpeta autorizada')
+        path.unlink()
+    return max(0, len(files) - keep)
+
+
+def _database_dump(path):
+    url = db.engine.url
+    if url.get_backend_name() == 'sqlite':
+        if not url.database or url.database == ':memory:':
+            raise RuntimeError('No se respalda una base de datos en memoria')
+        return Path(respaldar_sqlite(url.database, str(path / 'database.db')))
+    env = os.environ.copy()
+    if url.get_backend_name() == 'mysql':
+        program = shutil.which('mysqldump')
+        env['MYSQL_PWD'] = url.password or ''
+        args = [program, '--single-transaction', '--routines', '--events', '--no-tablespaces',
+                '--host=' + (url.host or 'localhost'), '--port=' + str(url.port or 3306),
+                '--user=' + (url.username or ''), url.database or '']
+    elif url.get_backend_name() == 'postgresql':
+        program = shutil.which('pg_dump')
+        env['PGPASSWORD'] = url.password or ''
+        args = [program, '--format=plain', '--no-owner', '--no-acl',
+                '--host=' + (url.host or 'localhost'), '--port=' + str(url.port or 5432),
+                '--username=' + (url.username or ''), url.database or '']
+    else:
+        raise RuntimeError('Motor de respaldo no soportado')
+    if not program:
+        raise RuntimeError('Instala la herramienta de respaldo del motor de base de datos')
+    output = path / 'database.sql'
+    with output.open('wb') as stream:
+        result = subprocess.run(args, stdout=stream, stderr=subprocess.PIPE, env=env, check=False)
+    if result.returncode:
+        raise RuntimeError('Falló la herramienta de respaldo de la base de datos; no se limpian respaldos previos')
+    return output
+
+
+def snapshot(directory=None):
+    from app.routes.uploads import folder
+    root = Path(directory or CARPETA_BACKUPS)
+    root.mkdir(parents=True, exist_ok=True)
+    final = root / (datetime.now(timezone.utc).strftime('drasac_%Y%m%d_%H%M%S_%f') + '.zip')
+    with shared_lock('uploads'), tempfile.TemporaryDirectory() as temp:
+        database = _database_dump(Path(temp))
+        manifest = {
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'database': database.name, 'engine': db.engine.url.get_backend_name(),
+            'schema': db.session.execute(db.text('SELECT version_num FROM alembic_version')).scalar(),
+            'recovery': 'Conservar INVENTORY_ENCRYPTION_KEYS por separado en un almacén seguro.',
+        }
+        temporary = final.with_suffix('.partial')
+        try:
+            with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.write(database, database.name)
+                archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False))
+                uploads = Path(folder()).resolve()
+                if uploads.exists():
+                    for file in sorted(uploads.iterdir()):
+                        if file.is_file() and not file.is_symlink() and file.resolve().parent == uploads:
+                            archive.write(file, 'uploads/' + file.name)
+            with zipfile.ZipFile(temporary) as archive:
+                if archive.testzip() is not None:
+                    raise RuntimeError('El archivo de respaldo no pasó la verificación')
+            temporary.replace(final)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+    return str(final)
 
 
 if __name__ == '__main__':
+    from app import create_app
     app = create_app()
-    uri = app.config['SQLALCHEMY_DATABASE_URI']
-    if not uri.startswith('sqlite'):
-        print("La base de datos NO es SQLite. Usa mysqldump/pg_dump programado:")
-        print("  MySQL: mysqldump -u usuario -p drasac > drasac_$(date +%F).sql")
-        sys.exit(0)
-
-    # Resolver la ruta real del archivo SQLite (instance/drasac.db)
     with app.app_context():
-        ruta_db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-        if not os.path.isabs(ruta_db):
-            ruta_db = os.path.join(app.instance_path, os.path.basename(ruta_db))
-
-    if not os.path.exists(ruta_db):
-        print(f"No se encontró la base de datos en: {ruta_db}")
-        sys.exit(1)
-
-    destino = respaldar_sqlite(ruta_db)
-    borrados = limpiar_antiguos()
-    tamanio = os.path.getsize(destino) / 1024
-    print(f"Respaldo creado: {destino} ({tamanio:.0f} KB) · antiguos eliminados: {borrados}")
-    limpiar_uploads()
+        destination = snapshot()
+        removed = limpiar_antiguos()
+        print(f'Respaldo verificado: {destination}; antiguos eliminados: {removed}')

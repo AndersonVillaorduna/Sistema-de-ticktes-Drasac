@@ -1,65 +1,41 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import api from '../services/api';
+import api, { clearSession } from '../services/api';
 
 const AuthContext = createContext(null);
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
-    const initializeAuth = async () => {
-      const token = localStorage.getItem('drasac_token');
-      if (token) {
-        try {
-          // Verificar token con backend
-          const response = await api.get('/auth/me');
-          setUser(response.data);
-          localStorage.setItem('drasac_user', JSON.stringify(response.data));
-        } catch (error) {
-          console.error("Token inválido o expirado al inicializar", error);
-          logout();
-        }
-      }
-      setLoading(false);
-    };
-
-    initializeAuth();
+    const controller = new AbortController();
+    api.get('/auth/me', { signal: controller.signal, skipAuthRedirect: true })
+      .then(({ data }) => setUser(data))
+      .catch((error) => {
+        if (error.response?.status === 401) clearSession();
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, []);
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
-      const { token, usuario } = response.data;
-      
-      localStorage.setItem('drasac_token', token);
-      localStorage.setItem('drasac_user', JSON.stringify(usuario));
-      setUser(usuario);
+      const { data } = await api.post('/auth/login', { email, password });
+      setUser(data.usuario);
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Error al iniciar sesión';
-      return { success: false, message };
+      return { success: false, message: error.response?.data?.message || 'Error al iniciar sesión' };
     }
   };
-
-  const logout = () => {
-    localStorage.removeItem('drasac_token');
-    localStorage.removeItem('drasac_user');
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout', {}, { skipAuthRedirect: true });
+    } catch { /* An expired session is already invalid on the server. */ }
+    finally { clearSession(); setUser(null); }
   };
-
   const value = {
-    user,
-    loading,
-    login,
-    logout,
+    user, loading, login, logout,
     isAdmin: user?.rol === 'admin',
     isTecnico: user?.rol === 'tecnico' || user?.rol === 'admin',
   };
-
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+export const useAuth = () => useContext(AuthContext);

@@ -83,7 +83,7 @@ const RegisterModal = ({ onClose, onCreated }) => {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest">Contraseña</label>
-              <input required type="password" minLength={6} value={form.password}
+              <input required type="password" minLength={8} maxLength={72} value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="Mín. 6 caracteres" className={inputCls}
                 style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }} />

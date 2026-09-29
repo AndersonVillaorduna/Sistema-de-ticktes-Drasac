@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api, { fileUrl } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -53,25 +53,33 @@ const TicketDetail = () => {
   const [enviandoPaso, setEnviandoPaso] = useState(false);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const fetchAbortRef = useRef(null);
+  const loadedArticleRef = useRef(null);
 
-  const fetchTicket = async () => {
+  const fetchTicket = useCallback(async () => {
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
     try {
-      const res = await api.get(`/tickets/${id}`);
+      const res = await api.get(`/tickets/${id}`, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setError('');
       setTicket(res.data);
       // Si el ticket está ligado a un artículo con pasos, cargarlo para el flujo guiado
-      if (res.data.articulo_id) {
-        api.get('/base-conocimiento')
-          .then((r) => setArticulo(r.data.find((a) => a.id === res.data.articulo_id) || null))
+      if (res.data.articulo_id && (loadedArticleRef.current?.id !== res.data.articulo_id || Date.now() - loadedArticleRef.current?.time > 15 * 60 * 1000)) {
+        api.get(`/base-conocimiento/${res.data.articulo_id}`, { signal: controller.signal })
+          .then((r) => { if (!controller.signal.aborted) { loadedArticleRef.current = { id: res.data.articulo_id, time: Date.now() }; setArticulo(r.data); } })
           .catch(() => {});
-      } else {
+      } else if (!res.data.articulo_id) {
+        loadedArticleRef.current = null;
         setArticulo(null);
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Error al cargar el ticket.');
+      if (!controller.signal.aborted) setError(err.response?.data?.message || 'Error al cargar el ticket.');
     } finally {
-      setLoading(false);
+      if (fetchAbortRef.current === controller) setLoading(false);
     }
-  };
+  }, [id]);
 
   const handleSiguientePaso = async () => {
     if (enviandoPaso) return;
@@ -91,7 +99,9 @@ const TicketDetail = () => {
     if (isTecnico) {
       api.get('/auth/tecnicos').then((r) => setTecnicos(r.data)).catch(() => {});
     }
-  }, [id]);
+    const timer = setInterval(() => { if (!document.hidden) fetchTicket(); }, 15000);
+    return () => { clearInterval(timer); fetchAbortRef.current?.abort(); };
+  }, [fetchTicket, isTecnico]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

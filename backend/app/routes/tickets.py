@@ -19,7 +19,16 @@ from app.services.ia_service import (
 from app.services.heuristica import clasificador_heuristico
 from app.services.reglas import detectar_intencion
 from app import db, limiter
-from datetime import datetime, timedelta
+from app.permissions import ticket_scope, ticket_loading, paginate_compat
+from app.locks import shared_lock
+from app.idempotency import idempotent_ticket, serialize_ticket
+from app.security_models import RequestKey
+from flask import g
+from flask import abort
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger('drasac.tickets')
 
@@ -31,14 +40,14 @@ def _notificar(usuario_ids, ticket_id, tipo, mensaje, excluir_id=None):
         db.session.add(Notificacion(usuario_id=uid, ticket_id=ticket_id, tipo=tipo, mensaje=mensaje))
 
 def _admins_ids():
-    return [a.id for a in Usuario.query.filter_by(rol='admin').all()]
+    return [a.id for a in Usuario.query.filter_by(rol='admin', activo=True).filter(Usuario.email != 'ia@drasac.com').all()]
 
 def _categorias_del_tecnico(tecnico_id):
     return [tc.categoria_id for tc in TecnicoCategoria.query.filter_by(tecnico_id=tecnico_id).all()]
 
 def _enviar_siguiente_paso(ticket):
     """Envía el siguiente paso del manual como comentario de la IA. Devuelve (ok, mensaje)."""
-    articulo = BaseConocimiento.query.get(ticket.articulo_id)
+    articulo = db.session.get(BaseConocimiento, ticket.articulo_id)
     pasos = articulo.get_pasos() if articulo else []
     paso_actual = ticket.paso_actual or 0
     if not pasos or paso_actual >= len(pasos):
@@ -115,15 +124,15 @@ def exportar_tickets():
     """Exportación de tickets para el Excel de Gestión (admin/técnico).
     ?periodo=1|7|30|90|todos"""
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     if not usuario or usuario.rol not in ('admin', 'tecnico'):
         return jsonify({"error": "No autorizado", "message": "Solo administradores y técnicos pueden exportar"}), 403
 
     periodo = request.args.get('periodo', 'todos')
-    query = Ticket.query
+    query = ticket_scope(usuario)
     if periodo in ('1', '7', '30', '90'):
         query = query.filter(Ticket.created_at >= datetime.utcnow() - timedelta(days=int(periodo)))
-    tickets = query.order_by(Ticket.created_at.desc()).all()
+    tickets = ticket_loading(paginate_compat(query.order_by(Ticket.created_at.desc(), Ticket.id.desc()))).all()
 
     filas = []
     for t in tickets:
@@ -144,8 +153,8 @@ def exportar_tickets():
             'estado': t.estado,
             'prioridad': t.prioridad,
             'resuelto_por': resuelto_por,
-            'creado': t.created_at.strftime('%d/%m/%Y %H:%M') if t.created_at else '',
-            'cerrado': t.resolved_at.strftime('%d/%m/%Y %H:%M') if t.resolved_at else '',
+            'creado': t.created_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo('America/Lima')).strftime('%d/%m/%Y %H:%M') if t.created_at else '',
+            'cerrado': t.resolved_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo('America/Lima')).strftime('%d/%m/%Y %H:%M') if t.resolved_at else '',
             'dias_resolucion': dias,
         })
     return jsonify(filas), 200
@@ -153,9 +162,10 @@ def exportar_tickets():
 @tickets_bp.route('', methods=['POST'])
 @jwt_required()
 @limiter.limit("20 per minute")
+@idempotent_ticket
 def crear_ticket():
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     if not usuario:
         return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
 
@@ -225,7 +235,7 @@ def crear_ticket():
             tecnico_id = tecnico_asoc.tecnico_id
         else:
             # Si no hay técnico para esa categoría, buscar cualquier usuario con rol 'tecnico'
-            primer_tecnico = Usuario.query.filter_by(rol='tecnico').first()
+            primer_tecnico = Usuario.query.filter_by(rol='tecnico', activo=True).first()
             if primer_tecnico:
                 tecnico_id = primer_tecnico.id
 
@@ -257,7 +267,10 @@ def crear_ticket():
 
     try:
         db.session.add(nuevo_ticket)
-        db.session.commit()
+        db.session.flush()
+        if getattr(g, 'request_key', None):
+            key, fingerprint = g.request_key
+            db.session.add(RequestKey(usuario_id=current_user_id, clave=key, fingerprint=fingerprint, ticket_id=nuevo_ticket.id))
         
         # Si la IA sugirió respuesta, agregarla como primer comentario del sistema
         if respuesta_sugerida and estado_inicial == 'resuelto por ia - pendiente':
@@ -286,7 +299,7 @@ def crear_ticket():
                 adjunto_url=adjunto_ia
             )
             db.session.add(comentario_ia)
-            db.session.commit()
+            db.session.flush()
 
         # Notificar el nuevo ticket al técnico asignado y a los administradores
         tienda = usuario.tienda_area or usuario.nombre
@@ -312,7 +325,7 @@ def crear_ticket():
 @jwt_required()
 def listar_tickets():
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     if not usuario:
         return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
 
@@ -350,14 +363,14 @@ def listar_tickets():
         query = query.filter(Ticket.tecnico_id == int(tecnico_id))
 
     # Ordenar por fecha de creación desc
-    tickets = query.order_by(Ticket.created_at.desc()).all()
+    tickets = ticket_loading(paginate_compat(query.order_by(Ticket.created_at.desc(), Ticket.id.desc()))).all()
 
     # Marcar tickets con respuestas que el usuario aún no ha visto ("punto azul")
     ids = [t.id for t in tickets]
     ultimo_comentario = {}
     if ids:
-        for c in Comentario.query.filter(Comentario.ticket_id.in_(ids))\
-                .order_by(Comentario.created_at.asc()).all():
+        latest_ids = db.session.query(func.max(Comentario.id)).filter(Comentario.ticket_id.in_(ids)).group_by(Comentario.ticket_id)
+        for c in Comentario.query.filter(Comentario.id.in_(latest_ids)).all():
             ultimo_comentario[c.ticket_id] = c
     lecturas = {l.ticket_id: l.leido_at for l in TicketLectura.query.filter(
         TicketLectura.usuario_id == current_user_id, TicketLectura.ticket_id.in_(ids)).all()}
@@ -377,8 +390,9 @@ def listar_tickets():
 @jwt_required()
 def obtener_ticket(id):
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
-    ticket = Ticket.query.get(id)
+    usuario = db.session.get(Usuario, current_user_id)
+    from sqlalchemy.orm import selectinload
+    ticket = ticket_loading(Ticket.query).options(selectinload(Ticket.comentarios).joinedload(Comentario.usuario)).filter_by(id=id).first()
     
     if not ticket:
         return jsonify({"error": "No encontrado", "message": "Ticket no encontrado"}), 404
@@ -400,21 +414,28 @@ def obtener_ticket(id):
     ticket_data['comentarios'] = [c.to_dict() for c in comentarios]
 
     # Registrar la lectura del ticket por este usuario (para los puntos de "sin leer")
-    lectura = TicketLectura.query.filter_by(usuario_id=current_user_id, ticket_id=ticket.id).first()
+    lectura = db.session.get(TicketLectura, (current_user_id, ticket.id))
     if lectura:
         lectura.leido_at = datetime.utcnow()
     else:
-        db.session.add(TicketLectura(usuario_id=current_user_id, ticket_id=ticket.id))
+        try:
+            with db.session.begin_nested():
+                db.session.add(TicketLectura(usuario_id=current_user_id, ticket_id=ticket.id))
+                db.session.flush()
+        except IntegrityError:
+            lectura = db.session.get(TicketLectura, (current_user_id, ticket.id))
+            lectura.leido_at = datetime.utcnow()
     db.session.commit()
 
     return jsonify(ticket_data), 200
 
 @tickets_bp.route('/<int:id>', methods=['PATCH'])
 @jwt_required()
+@serialize_ticket
 def actualizar_ticket(id):
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
-    ticket = Ticket.query.get(id)
+    usuario = db.session.get(Usuario, current_user_id)
+    ticket = db.session.get(Ticket, id)
     
     if not ticket:
         return jsonify({"error": "No encontrado", "message": "Ticket no encontrado"}), 404
@@ -447,7 +468,7 @@ def actualizar_ticket(id):
             # registrado QUIÉN lo resolvió y se deja constancia en el chat
             if estado_anterior not in ('cerrado', 'resuelto'):
                 marcado_resuelto = data.get('marcado_resuelto', True)
-                ticket.resuelto_por = 'humano'
+                ticket.resuelto_por = 'humano' if marcado_resuelto else 'sin_resolver'
                 ticket.resuelto_por_id = current_user_id
                 if marcado_resuelto:
                     db.session.add(Comentario(
@@ -475,18 +496,19 @@ def actualizar_ticket(id):
                 Auditoria.registrar(usuario, 'ticket_reabierto', f"Reabrió el ticket #{ticket.id}", ticket_id=ticket.id)
             ticket.resuelto_por = None
             ticket.resuelto_por_id = None
+            ticket.resolved_at = None
     if nueva_prioridad:
         ticket.prioridad = nueva_prioridad
-    if nuevo_tecnico_id:
-        nuevo_tec = Usuario.query.get(int(nuevo_tecnico_id))
+    if 'tecnico_id' in data:
+        nuevo_tec = db.session.get(Usuario, int(nuevo_tecnico_id)) if nuevo_tecnico_id is not None else None
         if nuevo_tec and nuevo_tec.id != ticket.tecnico_id:
             Auditoria.registrar(
                 usuario, 'ticket_reasignado',
                 f"Reasignó el ticket #{ticket.id} a {nuevo_tec.nombre}", ticket_id=ticket.id
             )
-        ticket.tecnico_id = int(nuevo_tecnico_id)
-    if nueva_categoria_id:
-        ticket.categoria_id = int(nueva_categoria_id)
+        ticket.tecnico_id = int(nuevo_tecnico_id) if nuevo_tecnico_id is not None else None
+    if 'categoria_id' in data:
+        ticket.categoria_id = int(nueva_categoria_id) if nueva_categoria_id is not None else None
 
     try:
         db.session.commit()
@@ -502,10 +524,11 @@ def actualizar_ticket(id):
 @tickets_bp.route('/<int:id>/comentarios', methods=['POST'])
 @jwt_required()
 @limiter.limit("30 per minute")
+@serialize_ticket
 def agregar_comentario(id):
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
-    ticket = Ticket.query.get(id)
+    usuario = db.session.get(Usuario, current_user_id)
+    ticket = db.session.get(Ticket, id)
     
     if not ticket:
         return jsonify({"error": "No encontrado", "message": "Ticket no encontrado"}), 404
@@ -563,7 +586,7 @@ def agregar_comentario(id):
             # ── Flujo guiado automático con Sí/No ──
             # Estados de paso_actual: 0 = no iniciado · 1..N = pasos enviados ·
             # N+10 = pregunta final enviada, esperando el Sí/No de la tienda
-            articulo_flujo = BaseConocimiento.query.get(ticket.articulo_id) if ticket.articulo_id else None
+            articulo_flujo = db.session.get(BaseConocimiento, ticket.articulo_id) if ticket.articulo_id else None
             pasos_flujo = articulo_flujo.get_pasos() if articulo_flujo else []
             if pasos_flujo and (ticket.paso_actual or 0) > 0:
                 intencion = detectar_intencion(mensaje)
@@ -579,6 +602,8 @@ def agregar_comentario(id):
                         ticket.estado = 'cerrado'
                         ticket.resolved_at = datetime.utcnow()
                         ticket.resuelto_por = 'ia'  # cierre automático del flujo guiado
+                        ticket.resuelto_por_id = None
+                        Auditoria.registrar(usuario, 'ticket_resuelto_ia', f'Confirmó la resolución del ticket #{ticket.id}', ticket_id=ticket.id)
                         db.session.add(Comentario(
                             ticket_id=ticket.id,
                             usuario_id=autor_ia,
@@ -621,6 +646,10 @@ def agregar_comentario(id):
                         ))
                     else:
                         ticket.estado = 'abierto'
+                        ticket.paso_actual = 0
+                        ticket.resolved_at = None
+                        ticket.resuelto_por = None
+                        ticket.resuelto_por_id = None
                         db.session.add(Comentario(
                             ticket_id=ticket.id,
                             usuario_id=autor_ia,
@@ -654,10 +683,11 @@ def agregar_comentario(id):
 
 @tickets_bp.route('/<int:id>/confirmar', methods=['POST'])
 @jwt_required()
+@serialize_ticket
 def confirmar_resolucion(id):
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
-    ticket = Ticket.query.get(id)
+    usuario = db.session.get(Usuario, current_user_id)
+    ticket = db.session.get(Ticket, id)
     
     if not ticket:
         return jsonify({"error": "No encontrado", "message": "Ticket no encontrado"}), 404
@@ -667,7 +697,11 @@ def confirmar_resolucion(id):
         return jsonify({"error": "No autorizado", "message": "Solo el usuario que reportó el ticket puede confirmar la resolución"}), 403
 
     data = request.get_json()
-    confirmado = data.get('confirmado', True)  # True para resuelto, False para escalar
+    confirmado = data.get('confirmado', True)
+    if ticket.estado == 'cerrado' and ticket.resuelto_por == 'ia' and confirmado:
+        return jsonify(message='Respuesta registrada correctamente', ticket=ticket.to_dict()), 200
+    if ticket.estado != 'resuelto por ia - pendiente':
+        abort(400, description='Este ticket no tiene una solución de IA pendiente de confirmar')  # True para resuelto, False para escalar
 
     if confirmado:
         ticket.estado = 'cerrado'
@@ -682,6 +716,9 @@ def confirmar_resolucion(id):
     else:
         ticket.estado = 'abierto'
         ticket.resuelto_por = None
+        ticket.resuelto_por_id = None
+        ticket.resolved_at = None
+        ticket.paso_actual = 0
         # Asignarle al técnico si aún no tiene o reasignarlo
         mensaje_sistema = "El usuario rechazó la solución de la IA. El ticket ha sido reabierto y escalado para soporte técnico humano."
 
@@ -709,11 +746,12 @@ def confirmar_resolucion(id):
 
 @tickets_bp.route('/<int:id>/siguiente-paso', methods=['POST'])
 @jwt_required()
+@serialize_ticket
 def enviar_siguiente_paso(id):
     """Envía el siguiente paso del manual/artículo al usuario en el chat del ticket."""
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
-    ticket = Ticket.query.get(id)
+    usuario = db.session.get(Usuario, current_user_id)
+    ticket = db.session.get(Ticket, id)
 
     if not ticket:
         return jsonify({"error": "No encontrado", "message": "Ticket no encontrado"}), 404
@@ -736,9 +774,10 @@ def enviar_siguiente_paso(id):
 
 @tickets_bp.route('/<int:id>', methods=['DELETE'])
 @jwt_required()
+@serialize_ticket
 def eliminar_ticket(id):
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     
     if not usuario or usuario.rol != 'admin':
         return jsonify({"error": "No autorizado", "message": "Solo administradores pueden eliminar tickets."}), 403
@@ -751,6 +790,13 @@ def eliminar_ticket(id):
             f"Eliminó el ticket #{ticket.id} ('{ticket.titulo[:60]}') de {ticket.usuario.nombre if ticket.usuario else '?'}",
             ticket_id=ticket.id
         )
+        TicketLectura.query.filter_by(ticket_id=ticket.id).delete(synchronize_session=False)
+        Notificacion.query.filter_by(ticket_id=ticket.id).delete(synchronize_session=False)
+        from app.models.ticket_inventario import TicketInventario
+        TicketInventario.query.filter_by(ticket_id=ticket.id).delete(synchronize_session=False)
+        from app.security_models import RequestKey
+        RequestKey.query.filter_by(ticket_id=ticket.id).delete(synchronize_session=False)
+        db.session.expire(ticket, ['equipos'])
         db.session.delete(ticket)
         db.session.commit()
         return jsonify({"message": "Ticket eliminado correctamente."}), 200

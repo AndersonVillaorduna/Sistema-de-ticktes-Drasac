@@ -218,9 +218,6 @@ const Asignacion = () => {
       <div className="space-y-4">
         {tecnicos.map((t) => {
           const sel = elecciones[t.id] || new Set();
-          const hayCambios = categorias.some(
-            (c) => sel.has(c.categoria_id) !== (c.tecnico_id === t.id)
-          );
           return (
             <div key={t.id} className="rounded-2xl border border-white/5 p-4 md:p-5"
               style={{ background: 'var(--bg-card)' }}>

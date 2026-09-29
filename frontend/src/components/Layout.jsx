@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
+import { useIaStatus } from '../utils/useIaStatus';
 import {
   LayoutDashboard,
   Ticket,
@@ -46,6 +47,7 @@ const tiempoRelativo = (iso) => {
 };
 
 const Layout = ({ children }) => {
+  const iaStatus = useIaStatus();
   const { user, logout, isTecnico, isAdmin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -157,8 +159,8 @@ const Layout = ({ children }) => {
     }
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -487,7 +489,7 @@ const Layout = ({ children }) => {
             {/* AI Status indicator */}
             <div className="hidden sm:flex items-center gap-2 text-[10px] bg-emerald-500/10 text-emerald-400 font-semibold px-3 py-1.5 rounded-full border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              IA Activa
+              {iaStatus.activo === null ? 'Comprobando IA' : iaStatus.activo ? 'IA Activa' : 'IA sin conexión'}
             </div>
             {/* Campana de notificaciones */}
             <div className="relative">

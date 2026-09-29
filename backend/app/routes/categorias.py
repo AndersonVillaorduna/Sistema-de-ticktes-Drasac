@@ -7,10 +7,20 @@ from app.models.tecnico_categoria import TecnicoCategoria
 from app.models.ticket import Ticket
 from app.models.auditoria import Auditoria
 from app import db
+from app.locks import shared_lock
+from functools import wraps
+
+def serialize_assignments(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with shared_lock('category-assignments'):
+            db.session.rollback()
+            return function(*args, **kwargs)
+    return wrapped
 from sqlalchemy import func
 
 def _admin_actual():
-    return Usuario.query.get(int(get_jwt_identity()))
+    return db.session.get(Usuario, int(get_jwt_identity()))
 categorias_bp = Blueprint('categorias', __name__)
 logger = logging.getLogger('drasac.categorias')
 
@@ -22,7 +32,7 @@ def obtener_categorias():
 
 
 def _verificar_admin():
-    usuario = Usuario.query.get(int(get_jwt_identity()))
+    usuario = db.session.get(Usuario, int(get_jwt_identity()))
     if not usuario or usuario.rol != 'admin':
         return None
     return usuario
@@ -47,8 +57,9 @@ def crear_categoria():
 
     categoria = Categoria(nombre=nombre)
     db.session.add(categoria)
-    db.session.commit()
+    db.session.flush()
     Auditoria.registrar(_admin_actual(), 'categoria_creada', f"Creó la categoría '{nombre}'")
+    db.session.commit()
     return jsonify({"message": f"Categoría '{nombre}' creada", "categoria": categoria.to_dict()}), 201
 
 @categorias_bp.route('/<int:categoria_id>', methods=['PUT'])
@@ -57,7 +68,7 @@ def renombrar_categoria(categoria_id):
     if not _verificar_admin():
         return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
 
-    categoria = Categoria.query.get(categoria_id)
+    categoria = db.session.get(Categoria, categoria_id)
     if not categoria:
         return jsonify({"error": "No encontrado", "message": "Categoría no encontrada"}), 404
 
@@ -71,8 +82,9 @@ def renombrar_categoria(categoria_id):
         return jsonify({"error": "Duplicado", "message": f"Ya existe la categoría '{nombre}'"}), 400
 
     categoria.nombre = nombre
-    db.session.commit()
+    db.session.flush()
     Auditoria.registrar(_admin_actual(), 'categoria_renombrada', f"Renombró la categoría #{categoria_id} a '{nombre}'")
+    db.session.commit()
     return jsonify({"message": "Categoría actualizada", "categoria": categoria.to_dict()}), 200
 
 @categorias_bp.route('/<int:categoria_id>', methods=['DELETE'])
@@ -82,7 +94,7 @@ def eliminar_categoria(categoria_id):
     if not _verificar_admin():
         return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
 
-    categoria = Categoria.query.get(categoria_id)
+    categoria = db.session.get(Categoria, categoria_id)
     if not categoria:
         return jsonify({"error": "No encontrado", "message": "Categoría no encontrada"}), 404
 
@@ -95,8 +107,9 @@ def eliminar_categoria(categoria_id):
     TecnicoCategoria.query.filter_by(categoria_id=categoria_id).delete()
     nombre_eliminada = categoria.nombre
     db.session.delete(categoria)
-    db.session.commit()
+    db.session.flush()
     Auditoria.registrar(_admin_actual(), 'categoria_eliminada', f"Eliminó la categoría '{nombre_eliminada}'")
+    db.session.commit()
     return jsonify({"message": f"Categoría '{nombre_eliminada}' eliminada"}), 200
 
 @categorias_bp.route('/asignaciones', methods=['GET'])
@@ -106,17 +119,15 @@ def obtener_asignaciones():
     if not _verificar_admin():
         return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
 
-    tecnicos = Usuario.query.filter(Usuario.rol.in_(['tecnico', 'admin'])).all()
+    tecnicos = Usuario.query.filter(Usuario.rol.in_(['tecnico', 'admin']), Usuario.activo == True, Usuario.email != 'ia@drasac.com').all()
     tecnicos_map = {t.id: t.nombre for t in tecnicos}
     relaciones = {r.categoria_id: r.tecnico_id for r in TecnicoCategoria.query.all()}
 
     estados_abiertos = ['abierto', 'en proceso', 'resuelto por ia - pendiente']
+    counts = dict(db.session.query(Ticket.categoria_id, func.count(Ticket.id)).filter(Ticket.estado.in_(estados_abiertos)).group_by(Ticket.categoria_id).all())
     resultado = []
     for cat in Categoria.query.order_by(Categoria.nombre).all():
-        abiertos = Ticket.query.filter(
-            Ticket.categoria_id == cat.id,
-            Ticket.estado.in_(estados_abiertos)
-        ).count()
+        abiertos = counts.get(cat.id, 0)
         tecnico_id = relaciones.get(cat.id)
         resultado.append({
             "categoria_id": cat.id,
@@ -129,6 +140,7 @@ def obtener_asignaciones():
 
 @categorias_bp.route('/tecnicos/<int:tecnico_id>', methods=['PUT'])
 @jwt_required()
+@serialize_assignments
 def asignar_categorias_a_tecnico(tecnico_id):
     """Define las categorías que atiende un técnico (una o varias).
     Cada categoría sigue teniendo un único técnico: si se la dan a este,
@@ -137,8 +149,8 @@ def asignar_categorias_a_tecnico(tecnico_id):
     if not _verificar_admin():
         return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
 
-    tecnico = Usuario.query.get(tecnico_id)
-    if not tecnico or tecnico.rol not in ['tecnico', 'admin']:
+    tecnico = db.session.get(Usuario, tecnico_id)
+    if not tecnico or not tecnico.activo or tecnico.rol not in ['tecnico', 'admin'] or tecnico.email.lower() == 'ia@drasac.com':
         return jsonify({"error": "No encontrado", "message": "Técnico no encontrado"}), 404
 
     data = request.get_json() or {}
@@ -148,7 +160,7 @@ def asignar_categorias_a_tecnico(tecnico_id):
 
     categorias_validas = []
     for cid in categoria_ids:
-        cat = Categoria.query.get(int(cid)) if str(cid).isdigit() else None
+        cat = db.session.get(Categoria, int(cid)) if str(cid).isdigit() else None
         if cat:
             categorias_validas.append(cat)
 
@@ -176,12 +188,13 @@ def asignar_categorias_a_tecnico(tecnico_id):
             t.tecnico_id = tecnico_id
         reasignados = len(tickets)
 
-    db.session.commit()
+    db.session.flush()
     nombres = [c.nombre for c in categorias_validas]
     Auditoria.registrar(
         _admin_actual(), 'asignaciones_actualizadas',
         f"Definió que {tecnico.nombre} atiende: {', '.join(nombres) if nombres else '(ninguna)'} · {reasignados} ticket(s) reasignado(s)"
     )
+    db.session.commit()
     return jsonify({
         "message": f"{tecnico.nombre} ahora atiende: {', '.join(nombres) if nombres else '(ninguna categoría)'}. {reasignados} ticket(s) sin cerrar reasignado(s).",
         "categorias": nombres,
@@ -190,13 +203,14 @@ def asignar_categorias_a_tecnico(tecnico_id):
 
 @categorias_bp.route('/<int:categoria_id>/asignar-tecnico', methods=['PUT'])
 @jwt_required()
+@serialize_assignments
 def asignar_tecnico(categoria_id):
     """Asigna un técnico a una categoría (solo uno por categoría).
     Reasigna además los tickets sin cerrar de esa categoría al nuevo técnico."""
     if not _verificar_admin():
         return jsonify({"error": "No autorizado", "message": "Solo administradores"}), 403
 
-    categoria = Categoria.query.get(categoria_id)
+    categoria = db.session.get(Categoria, categoria_id)
     if not categoria:
         return jsonify({"error": "No encontrado", "message": "Categoría no encontrada"}), 404
 
@@ -204,8 +218,8 @@ def asignar_tecnico(categoria_id):
     tecnico_id = data.get('tecnico_id')
 
     if tecnico_id is not None:
-        tecnico = Usuario.query.get(int(tecnico_id))
-        if not tecnico or tecnico.rol not in ['tecnico', 'admin']:
+        tecnico = db.session.get(Usuario, int(tecnico_id))
+        if not tecnico or not tecnico.activo or tecnico.rol not in ['tecnico', 'admin'] or tecnico.email.lower() == 'ia@drasac.com':
             return jsonify({"error": "Validación fallida", "message": "El usuario debe ser técnico o administrador"}), 400
         tecnico_id = tecnico.id
 
@@ -226,6 +240,7 @@ def asignar_tecnico(categoria_id):
             t.tecnico_id = tecnico_id
         reasignados = len(tickets)
 
+    Auditoria.registrar(_admin_actual(), 'asignaciones_actualizadas', f'Asignó el técnico {tecnico_id} a la categoría #{categoria_id}')
     db.session.commit()
     return jsonify({
         "message": f"Técnico asignado a la categoría {categoria.nombre}. {reasignados} ticket(s) sin cerrar reasignado(s).",

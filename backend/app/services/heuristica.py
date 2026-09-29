@@ -23,6 +23,22 @@ def clasificador_heuristico(titulo, descripcion):
     if coincidencias[max_categoria] == 0:
         max_categoria = "Software"
 
+    try:
+        from app.models.categoria import Categoria
+        categories = Categoria.query.all()
+        available = {c.nombre for c in categories}
+        if max_categoria not in available:
+            aliases = {
+                'Red/Módem': ('conexión', 'routers', 'módem'),
+                'Impresoras': ('impresión', 'tóner'),
+                'Hardware': ('componentes físicos', 'laptops'),
+                'Software': ('sistemas internos', 'aplicaciones'),
+                'Accesos': ('restablecimiento de contraseñas', 'desbloqueo'),
+            }
+            candidate = next((c for c in categories if any(k in (c.descripcion or '').lower() for k in aliases[max_categoria])), None)
+            max_categoria = candidate.nombre if candidate else (categories[0].nombre if categories else None)
+    except RuntimeError:
+        pass  # Pure classifier tests may run without an application context.
     return {
         "categoria": max_categoria,
         "confianza": 0.50,

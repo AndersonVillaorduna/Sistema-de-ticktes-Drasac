@@ -6,7 +6,9 @@ from app.models.inventario import Inventario
 from app.models.usuario import Usuario
 from app.schemas.schemas import InventarioSchema
 from app.services.ia_service import generar_informe_equipos
-from app import db
+from app import db, limiter
+from app.permissions import paginate_compat
+from app.models.auditoria import Auditoria
 from datetime import datetime, date
 inventario_bp = Blueprint('inventario', __name__)
 logger = logging.getLogger('drasac.inventario')
@@ -37,7 +39,7 @@ def _parse_fecha_entrega(valor):
 def verificar_rol_permitido(permitidos):
     """Auxiliar para verificar si el usuario tiene un rol permitido."""
     user_id = get_jwt_identity()
-    user = Usuario.query.get(user_id)
+    user = db.session.get(Usuario, user_id)
     if not user or user.rol not in permitidos:
         return False, jsonify({"error": "No autorizado", "message": f"Acceso restringido a roles: {', '.join(permitidos)}"}), 403
     return True, None, None
@@ -72,10 +74,12 @@ def listar_inventario():
     # Con exportar=1 se devuelve el detalle completo (incluye contraseña
     # descifrada) para poblar el Excel: mismo criterio de roles que el detalle.
     if request.args.get('exportar') == '1':
-        equipos = query.order_by(Inventario.nombre_equipo.asc()).all()
-        return jsonify([eq.to_dict() for eq in equipos]), 200
+        equipos = paginate_compat(query.order_by(Inventario.nombre_equipo.asc())).all()
+        Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'inventario_exportado', f'Exportó {len(equipos)} equipos con credenciales')
+        db.session.commit()
+        return jsonify([eq.to_dict(include_password=True) for eq in equipos]), 200
 
-    equipos = query.order_by(Inventario.nombre_equipo.asc()).all()
+    equipos = paginate_compat(query.order_by(Inventario.nombre_equipo.asc())).all()
     return jsonify(inventario_list_schema.dump(equipos)), 200
 
 @inventario_bp.route('', methods=['POST'])
@@ -123,10 +127,12 @@ def crear_equipo():
 
     try:
         db.session.add(nuevo_equipo)
+        db.session.flush()
+        Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'equipo_creado', f'Creó el equipo #{nuevo_equipo.id}')
         db.session.commit()
         return jsonify({
             "message": "Equipo de inventario registrado con éxito",
-            "equipo": nuevo_equipo.to_dict()
+            "equipo": nuevo_equipo.to_dict(include_password=True)
         }), 201
     except Exception:
         db.session.rollback()
@@ -136,10 +142,12 @@ def crear_equipo():
 @inventario_bp.route('/<int:id>', methods=['GET'])
 @jwt_required()
 def obtener_equipo(id):
-    equipo = Inventario.query.get(id)
+    equipo = db.session.get(Inventario, id)
     if not equipo:
         return jsonify({"error": "No encontrado", "message": "Equipo no encontrado"}), 404
-    return jsonify(equipo.to_dict()), 200
+    Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'credencial_consultada', f'Consultó el detalle del equipo #{equipo.id}')
+    db.session.commit()
+    return jsonify(equipo.to_dict(include_password=True)), 200
 
 @inventario_bp.route('/<int:id>', methods=['PUT'])
 @jwt_required()
@@ -148,7 +156,7 @@ def actualizar_equipo(id):
     if not permitido:
         return response, status
 
-    equipo = Inventario.query.get(id)
+    equipo = db.session.get(Inventario, id)
     if not equipo:
         return jsonify({"error": "No encontrado", "message": "Equipo no encontrado"}), 404
 
@@ -178,14 +186,15 @@ def actualizar_equipo(id):
         elif key != 'id':
             setattr(equipo, key, value)
 
-    if password_nueva is not None:
+    if 'password' in data:
         equipo.password_plano = password_nueva
 
     try:
+        Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'equipo_actualizado', f'Actualizó el equipo #{equipo.id}')
         db.session.commit()
         return jsonify({
             "message": "Equipo actualizado con éxito",
-            "equipo": equipo.to_dict()
+            "equipo": equipo.to_dict(include_password=True)
         }), 200
     except Exception:
         db.session.rollback()
@@ -199,14 +208,14 @@ def eliminar_equipo(id):
     if not permitido:
         return response, status
 
-    equipo = Inventario.query.get(id)
+    equipo = db.session.get(Inventario, id)
     if not equipo:
         return jsonify({"error": "No encontrado", "message": "Equipo no encontrado"}), 404
 
     try:
         from app.models.auditoria import Auditoria
         Auditoria.registrar(
-            Usuario.query.get(int(get_jwt_identity())), 'equipo_eliminado',
+            db.session.get(Usuario, int(get_jwt_identity())), 'equipo_eliminado',
             f"Eliminó '{equipo.nombre_equipo}' ({equipo.tipo}) de {equipo.ubicacion_tienda}"
         )
         db.session.delete(equipo)
@@ -219,6 +228,7 @@ def eliminar_equipo(id):
 
 @inventario_bp.route('/informe-ia', methods=['POST'])
 @jwt_required()
+@limiter.limit('5 per hour')
 def informe_ia_equipos():
     """Informe bajo demanda generado por la IA sobre los equipos más antiguos del inventario."""
     permitido, response, status = verificar_rol_permitido(['admin', 'tecnico'])
@@ -273,6 +283,7 @@ def informe_ia_equipos():
         'nivel': _nivel(d),
     } for d in top]
 
+    db.session.rollback()  # Release the read transaction before waiting for Ollama.
     informe = generar_informe_equipos(top, solo_antiguos=True)
 
     if not informe:

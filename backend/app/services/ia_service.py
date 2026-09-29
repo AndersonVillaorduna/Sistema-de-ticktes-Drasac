@@ -2,6 +2,11 @@ import os
 import json
 import logging
 import threading
+import math
+import re
+import unicodedata
+from sqlalchemy.orm import joinedload
+from app.services.ia_gate import OllamaGate
 import requests
 from app.models.categoria import Categoria
 from app.models.base_conocimiento import BaseConocimiento
@@ -28,7 +33,7 @@ try:
     OLLAMA_MAX_CONCURRENTES = max(1, int(os.getenv('OLLAMA_MAX_CONCURRENTES', '2')))
 except ValueError:
     OLLAMA_MAX_CONCURRENTES = 2
-_SEMAFORO_IA = threading.BoundedSemaphore(OLLAMA_MAX_CONCURRENTES)
+_SEMAFORO_IA = OllamaGate(OLLAMA_MAX_CONCURRENTES)
 
 # Timeout de clasificación (el informe usa uno mayor por ser más largo)
 try:
@@ -37,7 +42,7 @@ except ValueError:
     OLLAMA_TIMEOUT = 60
 
 def _opciones_ia(temperature=0.1):
-    opts = {"temperature": temperature}
+    opts = {"temperature": temperature, "num_ctx": 4096, "num_predict": 1024}
     if OLLAMA_NUM_THREAD > 0:
         opts["num_thread"] = OLLAMA_NUM_THREAD
     return opts
@@ -83,13 +88,16 @@ def clasificar_y_resolver_ticket(titulo, descripcion):
     # 2. Obtener los artículos del centro de conocimiento para que la IA los evalúe
     articulos = []
     try:
-        for caso in BaseConocimiento.query.all():
+        texto = (titulo + ' ' + descripcion).lower()
+        casos = BaseConocimiento.query.options(joinedload(BaseConocimiento.categoria)).all()
+        casos.sort(key=lambda c: sum(keyword_matches(k.strip(), texto) for k in c.palabras_clave.split(',') if k.strip()), reverse=True)
+        for caso in casos[:12]:
             articulos.append({
                 "id": caso.id,
                 "categoria": caso.categoria.nombre if caso.categoria else "Sin categoría",
                 "problema": caso.problema_tipo,
                 "palabras_clave": caso.palabras_clave,
-                "solucion": caso.solucion,
+                "solucion": caso.solucion[:1200],
             })
     except Exception as e:
         logger.warning("No se pudieron cargar artículos de la base de conocimiento: %s", e)
@@ -115,6 +123,8 @@ def clasificar_y_resolver_ticket(titulo, descripcion):
             "Pon \"es_caso_conocido\": false, \"articulo_id\": null y \"respuesta_sugerida\": null.\n"
         )
 
+    # Release the read transaction before waiting for the external model.
+    db.session.rollback()
     # 3. Construir prompt detallado
     prompt = f"""Clasifica el siguiente reporte de soporte de TI de la empresa DRASAC.
 Debes elegir estrictamente una categoría de la siguiente lista: {', '.join(lista_categorias)}.
@@ -149,10 +159,10 @@ Tu respuesta debe lucir exactamente así:
         return None
 
     try:
-        response = requests.post(
+        response = _post_ollama(
             f"{OLLAMA_API_URL}/api/generate",
             json=payload,
-            timeout=OLLAMA_TIMEOUT
+            timeout=(3, OLLAMA_TIMEOUT)
         )
 
         if response.status_code == 200:
@@ -183,10 +193,19 @@ Tu respuesta debe lucir exactamente así:
             except (TypeError, ValueError):
                 articulo_id = None
 
+            confidence = data.get('confianza', 0.5)
+            if isinstance(confidence, bool):
+                return None
+            confidence = float(confidence)
+            if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+                return None
+            known = data.get('es_caso_conocido', False)
+            if not isinstance(known, bool):
+                return None
             return {
                 "categoria": data.get('categoria'),
-                "confianza": float(data.get('confianza', 0.5)),
-                "es_caso_conocido": bool(data.get('es_caso_conocido', False)),
+                "confianza": confidence,
+                "es_caso_conocido": known,
                 "articulo_id": articulo_id,
                 "respuesta_sugerida": data.get('respuesta_sugerida')
             }
@@ -204,7 +223,7 @@ def articulo_coincide_con_texto(articulo, texto):
     if not articulo:
         return False
     palabras = [p.strip().lower() for p in (articulo.palabras_clave or '').split(',') if p.strip()]
-    return any(p in texto for p in palabras)
+    return any(keyword_matches(p, texto) for p in palabras)
 
 
 def buscar_articulo_en_base_de_conocimiento(categoria_id, titulo, descripcion):
@@ -226,7 +245,7 @@ def buscar_articulo_en_base_de_conocimiento(categoria_id, titulo, descripcion):
 
         for caso in casos:
             palabras = [p.strip().lower() for p in caso.palabras_clave.split(',') if p.strip()]
-            coincidencias = sum(1 for p in palabras if p in texto_busqueda)
+            coincidencias = sum(1 for p in palabras if keyword_matches(p, texto_busqueda))
 
             if coincidencias > max_palabras_coincidentes and coincidencias > 0:
                 max_palabras_coincidentes = coincidencias
@@ -331,10 +350,10 @@ IMPORTANTE: NO uses tablas ni Markdown (nada de |, ni **, ni #). Solo texto plan
         return None
 
     try:
-        response = requests.post(
+        response = _post_ollama(
             f"{OLLAMA_API_URL}/api/generate",
             json=payload,
-            timeout=180
+            timeout=(3, 120)
         )
         if response.status_code == 200:
             texto = response.json().get('response', '').strip()
@@ -345,3 +364,43 @@ IMPORTANTE: NO uses tablas ni Markdown (nada de |, ni **, ni #). Solo texto plan
         _SEMAFORO_IA.release()
 
     return None
+
+
+def keyword_matches(keyword, text):
+    def normalized(value):
+        return ''.join(c for c in unicodedata.normalize('NFKD', value.lower()) if not unicodedata.combining(c))
+    key = normalized(keyword)
+    if not key:
+        return False
+    return re.search(r'(?<!\w)' + re.escape(key) + r'(?!\w)', normalized(text)) is not None
+
+
+def _post_ollama(url, json, timeout):
+    with requests.Session() as session:
+        session.trust_env = False
+        if 'confianza' in json.get('prompt', ''):
+            json.setdefault('format', 'json')
+        response = session.post(url, json=json, timeout=timeout, stream=True)
+        try:
+            content = bytearray()
+            for chunk in response.iter_content(65536):
+                content.extend(chunk)
+                if len(content) > 2 * 1024 * 1024:
+                    raise ValueError('Respuesta de IA demasiado grande')
+            response._content = bytes(content)
+            response._content_consumed = True
+            return response
+        finally:
+            response.close()
+
+
+def estado_ia():
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            response = session.get(OLLAMA_API_URL + '/api/tags', timeout=(1, 2))
+            names = {m.get('name') or m.get('model') for m in response.json().get('models', [])} if response.status_code == 200 else set()
+            active = OLLAMA_MODEL in names or (':' not in OLLAMA_MODEL and OLLAMA_MODEL + ':latest' in names)
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        active = False
+    return {'activo': active, 'modelo': OLLAMA_MODEL}

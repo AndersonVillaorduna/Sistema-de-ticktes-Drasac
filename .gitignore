@@ -31,3 +31,9 @@ backend/uploads/
 
 # Respaldos de base de datos
 backend/backups/
+
+# Runtime quotas, worker locks and local security metadata
+backend/.cuota_uploads_*
+backend/instance/
+*.db-wal
+*.db-shm

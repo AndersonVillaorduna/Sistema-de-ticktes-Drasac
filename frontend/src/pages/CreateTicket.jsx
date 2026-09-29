@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { useIaStatus } from '../utils/useIaStatus';
 import {
   AlertCircle, Loader2, Ticket, Send,
   Bot, Zap, Sparkles, Wifi, Printer, Laptop, KeyRound, MonitorPlay, Lightbulb,
@@ -40,6 +41,8 @@ const CreateTicket = () => {
   const [iaVisible, setIaVisible] = useState(false);
   const debounceRef = useRef(null);
   const previewAbortRef = useRef(null);
+  const submissionRef = useRef(null);
+  const iaEstado = useIaStatus();
 
   useEffect(() => {
     api.get('/categorias')
@@ -52,6 +55,10 @@ const CreateTicket = () => {
   // Debounce largo + cancelación de la petición anterior para no saturar la CPU
   // con generaciones simultáneas de Ollama.
   useEffect(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    setIaLoading(false);
+    setIaSugerencia('');
     if (!descripcion || descripcion.length < 30) {
       setIaVisible(false);
       setIaSugerencia('');
@@ -65,8 +72,10 @@ const CreateTicket = () => {
       setIaLoading(true);
       setIaVisible(true);
       try {
-        const res = await api.post('/tickets/ia-preview', { titulo, descripcion }, { signal: controller.signal });
-        setIaSugerencia(res.data.sugerencia || res.data.respuesta_ia || '');
+        const res = await api.post('/tickets/ia-preview', { titulo, descripcion }, { signal: controller.signal, timeout: 75000 });
+        if (!controller.signal.aborted && previewAbortRef.current === controller) {
+          setIaSugerencia(res.data.sugerencia || res.data.respuesta_ia || '');
+        }
       } catch (err) {
         if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') {
           setIaSugerencia('');
@@ -78,7 +87,10 @@ const CreateTicket = () => {
         }
       }
     }, 1500);
-    return () => clearTimeout(debounceRef.current);
+    return () => {
+      clearTimeout(debounceRef.current);
+      previewAbortRef.current?.abort();
+    };
   }, [titulo, descripcion]);
 
   const aplicarEjemplo = (ej) => {
@@ -101,7 +113,13 @@ const CreateTicket = () => {
       };
       if (categoriaId) payload.categoria_id = Number(categoriaId);
 
-      const res = await api.post('/tickets', payload);
+      const fingerprint = JSON.stringify(payload);
+      if (submissionRef.current?.fingerprint !== fingerprint) {
+        submissionRef.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      const res = await api.post('/tickets', payload, {
+        timeout: 75000, headers: { 'Idempotency-Key': submissionRef.current.key },
+      });
       navigate(`/tickets/${res.data.ticket.id}`);
     } catch (err) {
       setError(err.response?.data?.message || 'Error al crear el ticket.');
@@ -315,8 +333,8 @@ const CreateTicket = () => {
               <span className="relative w-2.5 h-2.5 rounded-full bg-emerald-400" />
             </span>
             <div>
-              <p className="text-xs font-bold text-white">IA activa · Qwen 2.5</p>
-              <p className="text-[10px] text-slate-500">Responde en segundos, 24/7</p>
+              <p className="text-xs font-bold text-white">{iaEstado.activo ? 'IA activa' : iaEstado.activo === null ? 'Verificando IA' : 'IA en respaldo'} · {iaEstado.modelo}</p>
+              <p className="text-[10px] text-slate-500">{iaEstado.activo ? 'Asistente local disponible' : 'Clasificación de respaldo disponible'}</p>
             </div>
           </div>
 

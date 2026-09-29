@@ -7,6 +7,7 @@ from app.models.categoria import Categoria
 from app.models.inventario import Inventario
 from app.models.tecnico_categoria import TecnicoCategoria
 from app import db
+from app.permissions import ticket_scope, ticket_loading
 from sqlalchemy import func, or_
 from datetime import datetime, timedelta
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -34,7 +35,7 @@ def _alcance_query(usuario, current_user_id):
 @jwt_required()
 def obtener_estadisticas():
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     if not usuario:
         return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
 
@@ -96,7 +97,7 @@ def obtener_estadisticas():
             resoluciones_humanas = 0
 
     # 4. Tickets recientes (mismo alcance)
-    tickets_recientes = alcance.order_by(Ticket.created_at.desc()).limit(5).all()
+    tickets_recientes = ticket_loading(alcance.order_by(Ticket.created_at.desc()).limit(5)).all()
 
     return jsonify({
         "totales": {
@@ -123,7 +124,7 @@ def tickets_por_tienda():
     """Ranking de tiendas por cantidad de tickets creados.
     ?dias=7|14|30|90 (0 = todo el historial)."""
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     if not usuario:
         return jsonify({"error": "No encontrado", "message": "Usuario no encontrado"}), 404
     if usuario.rol not in ['admin', 'tecnico']:
@@ -140,6 +141,10 @@ def tickets_por_tienda():
         func.count(Ticket.id).label('cantidad')
     ).join(Usuario, Ticket.usuario_id == Usuario.id)
 
+    if not 0 <= dias <= 3650:
+        return jsonify(error='Período inválido', message='El período debe estar entre 0 y 3650 días'), 400
+    allowed_ids = ticket_scope(usuario).with_entities(Ticket.id)
+    query = query.filter(Ticket.id.in_(allowed_ids))
     if dias > 0:
         query = query.filter(Ticket.created_at >= datetime.utcnow() - timedelta(days=dias))
     query = query.filter(Usuario.tienda_area.isnot(None), Usuario.tienda_area != '')

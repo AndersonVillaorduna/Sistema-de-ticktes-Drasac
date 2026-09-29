@@ -22,7 +22,7 @@ const ACCIONES = {
 };
 
 // Fallback visual para acciones no mapeadas (evita crash del render)
-function CheckCircleSafe(props) {
+function CheckCircleSafe() {
   return <span className="inline-block w-3.5 h-3.5 rounded-full border border-current" />;
 }
 

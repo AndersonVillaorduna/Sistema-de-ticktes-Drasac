@@ -1,11 +1,13 @@
 from flask import Blueprint, request, jsonify
 import logging
+from sqlalchemy.orm import joinedload
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import json as _json
 from app.models.base_conocimiento import BaseConocimiento
 from app.models.categoria import Categoria
 from app.models.usuario import Usuario
 from app import db
+from app.models.auditoria import Auditoria
 base_conocimiento_bp = Blueprint('base_conocimiento', __name__)
 logger = logging.getLogger('drasac.base_conocimiento')
 
@@ -30,14 +32,22 @@ def _normalizar_pasos(pasos):
 
 def _requiere_admin():
     current_user_id = int(get_jwt_identity())
-    usuario = Usuario.query.get(current_user_id)
+    usuario = db.session.get(Usuario, current_user_id)
     return usuario and usuario.rol == 'admin'
 
 @base_conocimiento_bp.route('', methods=['GET'])
 @jwt_required()
 def listar_articulos():
-    articulos = BaseConocimiento.query.order_by(BaseConocimiento.id.asc()).all()
+    articulos = BaseConocimiento.query.options(joinedload(BaseConocimiento.categoria)).order_by(BaseConocimiento.id.asc()).all()
     return jsonify([a.to_dict() for a in articulos]), 200
+
+@base_conocimiento_bp.route('/<int:articulo_id>', methods=['GET'])
+@jwt_required()
+def obtener_articulo(articulo_id):
+    articulo = db.session.get(BaseConocimiento, articulo_id)
+    if not articulo:
+        return jsonify(error='No encontrado', message='El artículo no existe'), 404
+    return jsonify(articulo.to_dict()), 200
 
 @base_conocimiento_bp.route('', methods=['POST'])
 @jwt_required()
@@ -58,7 +68,7 @@ def crear_articulo():
         return jsonify({"error": "Datos incompletos", "message": "Problema, solución y palabras clave son obligatorios"}), 400
 
     if categoria_id is not None:
-        if not Categoria.query.get(categoria_id):
+        if not db.session.get(Categoria, categoria_id):
             return jsonify({"error": "Datos inválidos", "message": "La categoría indicada no existe"}), 400
 
     try:
@@ -71,6 +81,8 @@ def crear_articulo():
             pasos=_normalizar_pasos(data.get('pasos'))
         )
         db.session.add(articulo)
+        db.session.flush()
+        Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'articulo_creado', f'Creó el artículo #{articulo.id}')
         db.session.commit()
         return jsonify({"message": "Artículo creado", "articulo": articulo.to_dict()}), 201
     except Exception:
@@ -84,7 +96,7 @@ def actualizar_articulo(articulo_id):
     if not _requiere_admin():
         return jsonify({"error": "No autorizado", "message": "Solo los administradores pueden gestionar la base de conocimiento"}), 403
 
-    articulo = BaseConocimiento.query.get(articulo_id)
+    articulo = db.session.get(BaseConocimiento, articulo_id)
     if not articulo:
         return jsonify({"error": "No encontrado", "message": "El artículo no existe"}), 404
 
@@ -100,7 +112,7 @@ def actualizar_articulo(articulo_id):
         articulo.palabras_clave = (data.get('palabras_clave') or '').strip().lower() or articulo.palabras_clave
     if 'categoria_id' in data:
         categoria_id = data.get('categoria_id')
-        if categoria_id is not None and not Categoria.query.get(categoria_id):
+        if categoria_id is not None and not db.session.get(Categoria, categoria_id):
             return jsonify({"error": "Datos inválidos", "message": "La categoría indicada no existe"}), 400
         articulo.categoria_id = categoria_id
     if 'imagen_url' in data:
@@ -112,6 +124,7 @@ def actualizar_articulo(articulo_id):
             return jsonify({"error": "Datos inválidos", "message": "El formato de los pasos no es válido"}), 400
 
     try:
+        Auditoria.registrar(db.session.get(Usuario, int(get_jwt_identity())), 'articulo_actualizado', f'Actualizó el artículo #{articulo.id}')
         db.session.commit()
         return jsonify({"message": "Artículo actualizado", "articulo": articulo.to_dict()}), 200
     except Exception:
@@ -125,14 +138,14 @@ def eliminar_articulo(articulo_id):
     if not _requiere_admin():
         return jsonify({"error": "No autorizado", "message": "Solo los administradores pueden gestionar la base de conocimiento"}), 403
 
-    articulo = BaseConocimiento.query.get(articulo_id)
+    articulo = db.session.get(BaseConocimiento, articulo_id)
     if not articulo:
         return jsonify({"error": "No encontrado", "message": "El artículo no existe"}), 404
 
     try:
         from app.models.auditoria import Auditoria
         Auditoria.registrar(
-            Usuario.query.get(int(get_jwt_identity())), 'articulo_eliminado',
+            db.session.get(Usuario, int(get_jwt_identity())), 'articulo_eliminado',
             f"Eliminó el artículo '{articulo.problema_tipo[:60]}'"
         )
         db.session.delete(articulo)

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { weeklyTicketCounts } from '../utils/analytics';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import {
@@ -200,22 +201,13 @@ const Reports = () => {
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 5);
 
-    const resueltos = tickets.filter((t) => ['cerrado', 'resuelto'].includes(t.estado)).length;
+    const resueltos = tickets.filter((t) => ['cerrado', 'resuelto'].includes(t.estado) && t.resuelto_por !== 'sin_resolver').length;
     const alta = tickets.filter((t) => t.prioridad === 'alta').length;
     const iaPend = tickets.filter((t) => t.estado === 'resuelto por ia - pendiente').length;
     const resolucionRate = total > 0 ? Math.round((resueltos / total) * 100) : 0;
 
     // Semana actual vs anterior
-    const countLast = (n) => {
-      const since = new Date(); since.setDate(since.getDate() - (n * 7));
-      const from = new Date(); from.setDate(from.getDate() - ((n - 1) * 7) - 1);
-      return tickets.filter((t) => {
-        const d = new Date(t.created_at);
-        return d > since && d <= from;
-      }).length;
-    };
-    const thisWeek = countLast(0);
-    const lastWeek = countLast(1);
+    const { thisWeek, lastWeek } = weeklyTicketCounts(tickets);
     const trend = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0;
 
     return { total, byEstado, days, byCategoria, topUsers, resueltos, alta, iaPend, resolucionRate, thisWeek, lastWeek, trend };

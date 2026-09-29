@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { useIaStatus } from '../utils/useIaStatus';
 import { useAuth } from '../context/AuthContext';
 import {
   Ticket, Clock, Bot, CheckCircle2, Laptop,
   ArrowUpRight, TrendingUp, Cpu, PlusCircle,
-  Zap, Activity, AlertCircle, MessageSquare,
+  Zap, Activity, AlertCircle,
   User, BarChart3,
 } from 'lucide-react';
 
@@ -44,7 +45,7 @@ const StatusBadge = ({ estado }) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // VISTA PARA EMPLEADO
 // ══════════════════════════════════════════════════════════════════════════════
-const EmpleadoDashboard = ({ user, stats }) => (
+const EmpleadoDashboard = ({ user, stats, iaStatus }) => (
   <div className="space-y-6 animate-fade-in">
     {/* Welcome Hero */}
     <div className="relative overflow-hidden rounded-2xl p-6 border border-white/5"
@@ -144,7 +145,7 @@ const EmpleadoDashboard = ({ user, stats }) => (
             </div>
             <div>
               <p className="text-xs font-bold text-white">Asistente IA</p>
-              <p className="text-[10px] text-indigo-400">Qwen 2.5 · Activo</p>
+              <p className="text-[10px] text-indigo-400">{iaStatus.modelo} · {iaStatus.activo ? 'Activo' : iaStatus.activo === null ? 'Comprobando' : 'Sin conexión'}</p>
             </div>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -182,7 +183,7 @@ const EmpleadoDashboard = ({ user, stats }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 // VISTA PARA ADMIN / TÉCNICO
 // ══════════════════════════════════════════════════════════════════════════════
-const AdminDashboard = ({ user, stats }) => {
+const AdminDashboard = ({ stats, iaStatus }) => {
   const kpis = [
     { label: 'Total Tickets',       value: stats?.totales?.tickets || 0,          icon: Ticket,      color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/15' },
     { label: 'Abiertos / En Proceso', value: (stats?.totales?.abiertos || 0) + (stats?.totales?.en_proceso || 0), icon: AlertCircle, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/15' },
@@ -421,11 +422,11 @@ const AdminDashboard = ({ user, stats }) => {
               </div>
               <div className="flex-1">
                 <p className="text-xs font-bold text-white">Motor IA</p>
-                <p className="text-[10px] text-indigo-400">Ollama · Qwen 2.5 3B</p>
+                <p className="text-[10px] text-indigo-400">Ollama · {iaStatus.modelo}</p>
               </div>
               <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Online
+                {iaStatus.activo ? 'Online' : iaStatus.activo === null ? 'Comprobando' : 'Offline'}
               </span>
             </div>
           </div>
@@ -439,6 +440,7 @@ const AdminDashboard = ({ user, stats }) => {
 // DASHBOARD PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 const Dashboard = () => {
+  const iaStatus = useIaStatus();
   const { user, isTecnico } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -462,8 +464,8 @@ const Dashboard = () => {
   }
 
   return isTecnico
-    ? <AdminDashboard user={user} stats={stats} />
-    : <EmpleadoDashboard user={user} stats={stats} />;
+    ? <AdminDashboard user={user} stats={stats} iaStatus={iaStatus} />
+    : <EmpleadoDashboard user={user} stats={stats} iaStatus={iaStatus} />;
 };
 
 export default Dashboard;

@@ -9,6 +9,8 @@ from app.models.ticket import Ticket
 from datetime import datetime, timedelta
 
 def seed_database():
+    if os.getenv('FLASK_ENV', 'development').lower() == 'production':
+        raise RuntimeError('El seed de demostración no se ejecuta en producción. Usa manage.py bootstrap-admin.')
     print("Iniciando la población de la base de datos...")
     
     # 1. Crear categorías por defecto
@@ -38,7 +40,7 @@ def seed_database():
         {"nombre": "Técnico General (Técnico C)", "email": "tecnico_general@drasac.com", "password": "tecnico123", "rol": "tecnico", "tienda_area": "Soporte Nivel 1"},
         {"nombre": "Tienda Sur - Cajero", "email": "tienda_sur@drasac.com", "password": "usuario123", "rol": "usuario", "tienda_area": "Tienda Sur (Mall)"},
         {"nombre": "Tienda Norte - Administrador", "email": "tienda_norte@drasac.com", "password": "usuario123", "rol": "usuario", "tienda_area": "Tienda Norte (Avenida)"},
-        {"nombre": "Inteligencia Artificial Drasac", "email": "ia@drasac.com", "password": "iapassword123", "rol": "admin", "tienda_area": "Servicio de Clasificación Automática"}
+        {"nombre": "Inteligencia Artificial Drasac", "email": "ia@drasac.com", "password": __import__("secrets").token_urlsafe(32), "rol": "sistema", "tienda_area": "Servicio de Clasificación Automática"}
     ]
 
     usuarios_db = {}
@@ -51,6 +53,7 @@ def seed_database():
                 rol=user_data["rol"],
                 tienda_area=user_data["tienda_area"]
             )
+            user.activo = user_data['email'] != 'ia@drasac.com'
             user.set_password(user_data["password"])
             db.session.add(user)
             db.session.commit()

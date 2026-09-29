@@ -11,6 +11,7 @@ class Usuario(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     rol = db.Column(db.String(20), nullable=False, default='usuario')  # 'admin', 'tecnico', 'usuario'
     tienda_area = db.Column(db.String(100), nullable=True)
+    activo = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relación de muchos a muchos con categorias (a través de la tabla intermedia para técnicos)
@@ -25,7 +26,12 @@ class Usuario(db.Model):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
     def check_password(self, password):
-        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+        if not isinstance(password, str) or len(password.encode('utf-8')) > 72:
+            return False
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+        except (ValueError, TypeError):
+            return False
 
     def to_dict(self):
         return {

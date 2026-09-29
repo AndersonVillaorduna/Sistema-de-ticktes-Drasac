@@ -20,7 +20,7 @@ class Inventario(db.Model):
     # Campos por tipo de equipo:
     imei_chip = db.Column(db.String(30), nullable=True)      # Modem: IMEI del chip
     windows_version = db.Column(db.String(50), nullable=True)  # Laptop: versión de Windows
-    password = db.Column(db.String(300), nullable=True)      # Contraseña (cifrada) del modem/laptop
+    password = db.Column(db.String(1024), nullable=True)      # Contraseña (cifrada) del modem/laptop
 
     # Relación muchos a muchos con tickets (a través de la tabla intermedia)
     tickets = db.relationship(
@@ -37,8 +37,8 @@ class Inventario(db.Model):
     def password_plano(self, valor):
         self.password = cifrar(valor)
 
-    def to_dict(self):
-        return {
+    def to_dict(self, include_password=False):
+        result = {
             'id': self.id,
             'nombre_equipo': self.nombre_equipo,
             'tipo': self.tipo,
@@ -53,5 +53,7 @@ class Inventario(db.Model):
             'fecha_entrega': self.fecha_entrega.isoformat() if self.fecha_entrega else None,
             'imei_chip': self.imei_chip,
             'windows_version': self.windows_version,
-            'password': self.password_plano
         }
+        if include_password:
+            result['password'] = self.password_plano
+        return result
